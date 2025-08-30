@@ -231,3 +231,57 @@ export const getFilteredData = (projectData, focusedNode) => {
   
   return { visibleNodes, validLinks };
 };
+
+/**
+ * Calculate optimal zoom transform to fit all nodes in viewport
+ */
+export function fitNodesToView(svg, nodes, padding = null) {
+  const svgElement = svg.node();
+  const rect = svgElement.getBoundingClientRect();
+  const width = rect.width;
+  const height = rect.height;
+
+  // If no nodes or dimensions, return default transform
+  if (!nodes || nodes.length === 0 || width === 0 || height === 0) {
+    return d3.zoomIdentity.translate(width / 2, height / 2).scale(1);
+  }
+
+  // Dynamic padding based on number of nodes
+  if (padding === null) {
+    padding = Math.max(20, Math.min(100, 50 + nodes.length * 0.5));
+  }
+
+  // Calculate bounds of all nodes
+  const bounds = {
+    minX: Math.min(...nodes.map(d => d.x || 0)),
+    maxX: Math.max(...nodes.map(d => d.x || 0)),
+    minY: Math.min(...nodes.map(d => d.y || 0)),
+    maxY: Math.max(...nodes.map(d => d.y || 0))
+  };
+
+  const graphWidth = bounds.maxX - bounds.minX;
+  const graphHeight = bounds.maxY - bounds.minY;
+
+  // Handle edge case where all nodes are at the same position
+  if (graphWidth === 0 && graphHeight === 0) {
+    return d3.zoomIdentity.translate(width / 2, height / 2).scale(1);
+  }
+
+  // Calculate scale to fit with padding, with reasonable limits
+  const maxScale = nodes.length > 20 ? 1.5 : nodes.length > 10 ? 2.5 : 4;
+  const scale = Math.min(
+    (width - padding * 2) / Math.max(graphWidth, 1),
+    (height - padding * 2) / Math.max(graphHeight, 1),
+    maxScale // Dynamic maximum scale based on node count
+  );
+
+  // Calculate center of the graph
+  const centerX = bounds.minX + graphWidth / 2;
+  const centerY = bounds.minY + graphHeight / 2;
+
+  // Calculate translation to center the graph in the viewport
+  const translateX = width / 2 - centerX * scale;
+  const translateY = height / 2 - centerY * scale;
+
+  return d3.zoomIdentity.translate(translateX, translateY).scale(scale);
+}
