@@ -18,7 +18,8 @@ import {
   createArrowMarkers,
   setupZoomBehavior,
   createLinkArc,
-  getFilteredData 
+  getFilteredData,
+  fitNodesToView
 } from '../utils/d3Utils';
 
 const Visualizer = () => {
@@ -98,21 +99,20 @@ const Visualizer = () => {
     }
   };
 
-  // Reset view function (exact original)
+  // Reset view function to fit all nodes in viewport
   const resetView = () => {
-    // Reset zoom and center the view
-    if (svgRef.current) {
+    if (svgRef.current && projectData && projectData.nodes && projectData.nodes.length > 0) {
       const svg = d3.select(svgRef.current);
-      const container = svgRef.current.parentElement;
-      const width = container.clientWidth;
-      const height = container.clientHeight;
+      
+      // Get filtered data to work with visible nodes
+      const { visibleNodes } = getFilteredData(projectData, focusedNode);
+      
+      // Calculate optimal zoom transform to fit all visible nodes
+      const transform = fitNodesToView(svg, visibleNodes, 80);
       
       svg.transition()
         .duration(750)
-        .call(
-          d3.zoom().transform,
-          d3.zoomIdentity.translate(width / 2, height / 2).scale(1)
-        );
+        .call(d3.zoom().transform, transform);
     }
   };
 
@@ -332,14 +332,17 @@ const Visualizer = () => {
       const simulation = d3.forceSimulation(visibleNodes)
         .force("link", d3.forceLink(validLinks)
           .id(d => d.id)
-          .distance(100)
-          .strength(0.5))
-        .force("charge", d3.forceManyBody().strength(-800))
+          .distance(80) // Reduced from 100 for more compact layout
+          .strength(0.6)) // Increased slightly for better connection
+        .force("charge", d3.forceManyBody().strength(-600)) // Reduced from -800 for less spread
         .force("center", d3.forceCenter(width / 2, height / 2))
-        .force("collision", d3.forceCollide().radius(25));
+        .force("collision", d3.forceCollide().radius(25))
+        .force("x", d3.forceX(width / 2).strength(0.1)) // Add gentle centering force
+        .force("y", d3.forceY(height / 2).strength(0.1)); // Add gentle centering force
 
       simulationRef.current = simulation;
 
+      let tickCount = 0;
       simulation.on("tick", () => {
         link.attr("d", linkArc);
         
@@ -362,6 +365,21 @@ const Visualizer = () => {
         });
         
         node.attr("transform", d => `translate(${d.x},${d.y})`);
+
+        // Auto-fit view after simulation has run for a few ticks (when nodes have positions)
+        tickCount++;
+        if (tickCount === 50) { // After 50 ticks, the simulation should be stable enough
+          setTimeout(() => {
+            resetView();
+          }, 100);
+        }
+      });
+
+      // Also fit view when simulation ends
+      simulation.on("end", () => {
+        setTimeout(() => {
+          resetView();
+        }, 100);
       });
     } else {
       // Static layouts
@@ -415,6 +433,11 @@ const Visualizer = () => {
         }
         return 0;
       });
+      
+      // Auto-fit view for static layouts
+      setTimeout(() => {
+        resetView();
+      }, 100);
     }
 
     // Apply search filter (exact original)
@@ -546,6 +569,12 @@ const Visualizer = () => {
             className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-3 lg:px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 text-sm"
           >
             Detect Issues
+          </button>
+          <button
+            onClick={resetView}
+            className="bg-gradient-to-r from-green-500 to-green-600 text-white px-3 lg:px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 text-sm"
+          >
+            🔍 Fit to View
           </button>
           <button
             onClick={exportGraph}
