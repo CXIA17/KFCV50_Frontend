@@ -464,14 +464,15 @@ const Visualizer = () => {
       .data(["normal", "circular", "extends", "depends", "provides", "injects"])
       .enter().append("marker")
       .attr("id", d => `arrow-${d}`)
-      .attr("viewBox", "0 -5 10 10")
-      .attr("refX", 25)
+      .attr("viewBox", "0 -6 12 12")
+      .attr("refX", 28)
       .attr("refY", 0)
-      .attr("markerWidth", 6)
-      .attr("markerHeight", 6)
+      .attr("markerWidth", 8)
+      .attr("markerHeight", 8)
       .attr("orient", "auto")
+      .attr("markerUnits", "strokeWidth")
       .append("path")
-      .attr("d", "M0,-5L10,0L0,5")
+      .attr("d", "M0,-5L10,0L0,5L2,0Z") // More pointed arrow shape
       .attr("fill", d => {
         switch(d) {
           case "circular": return "#ff6b6b";
@@ -481,7 +482,9 @@ const Visualizer = () => {
           case "injects": return "#f59e0b"; // orange
           default: return "#999";
         }
-      });
+      })
+      .attr("stroke", "#fff") // White outline for better visibility
+      .attr("stroke-width", 0.5);
 
     // Function to get link color based on type
     const getLinkColor = (link) => {
@@ -519,14 +522,26 @@ const Visualizer = () => {
       .enter().append("path")
       .attr("fill", "none")
       .attr("stroke", getLinkColor)
-      .attr("stroke-width", 2)
-      .attr("stroke-opacity", 0.7)
+      .attr("stroke-width", 2.5) // Slightly thicker lines
+      .attr("stroke-opacity", 0.8) // Higher opacity for better visibility
       .attr("marker-end", d => `url(#arrow-${getMarkerType(d)})`)
       .classed("circular", d => {
         return circularPairs.some(pair => 
           (pair[0] === d.source && pair[1] === d.target) ||
           (pair[0] === d.target && pair[1] === d.source)
         );
+      })
+      .on("mouseover", function(event, d) {
+        // Highlight arrow on hover
+        d3.select(this)
+          .attr("stroke-width", 4)
+          .attr("stroke-opacity", 1);
+      })
+      .on("mouseout", function(event, d) {
+        // Reset arrow styling
+        d3.select(this)
+          .attr("stroke-width", 2.5)
+          .attr("stroke-opacity", 0.8);
       });
 
     // Add relationship labels on links
