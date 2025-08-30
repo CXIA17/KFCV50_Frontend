@@ -861,7 +861,7 @@ const Visualizer = () => {
       links = apiData.base_classes.map(rel => ({
         source: convertDotToSlash(rel.name),
         target: "Object",
-        type: "dependency"
+        type: "extends"
       }));
     }
     
