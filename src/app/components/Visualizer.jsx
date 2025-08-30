@@ -1177,13 +1177,13 @@ const Visualizer = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-purple-700 flex flex-col">
       {/* Header */}
-      <div className="bg-white/95 backdrop-blur-md p-5 shadow-lg flex justify-between items-center">
+      <div className="bg-white/95 backdrop-blur-md p-4 lg:p-6 shadow-lg flex flex-wrap justify-between items-center gap-4">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">
             K
           </div>
           <div>
-            <h1 className="text-2xl font-semibold text-gray-800">Knit Dependency Visualizer</h1>
+            <h1 className="text-xl lg:text-2xl font-semibold text-gray-800">Knit Dependency Visualizer</h1>
             {focusedNode && (
               <p className="text-sm text-gray-600 mt-1">
                 Focused on: <span className="font-medium text-indigo-600">{focusedNode}</span>
@@ -1191,11 +1191,11 @@ const Visualizer = () => {
             )}
           </div>
         </div>
-        <div className="flex gap-4 items-center">
+        <div className="flex flex-wrap gap-2 lg:gap-4 items-center">
           {previousState && (
             <button
               onClick={goBack}
-              className="bg-gradient-to-r from-gray-500 to-gray-600 text-white px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 flex items-center gap-2"
+              className="bg-gradient-to-r from-gray-500 to-gray-600 text-white px-3 lg:px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 flex items-center gap-2 text-sm"
             >
               ← Back to Full View
             </button>
@@ -1216,7 +1216,7 @@ const Visualizer = () => {
                   resetView();
                 }, 100);
               }}
-              className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 flex items-center gap-2"
+              className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-3 lg:px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 flex items-center gap-2 text-sm"
             >
               Clear Focus
             </button>
@@ -1224,7 +1224,7 @@ const Visualizer = () => {
           <select 
             value={currentLayout}
             onChange={(e) => setCurrentLayout(e.target.value)}
-            className="px-4 py-2 border-2 border-gray-200 rounded-lg bg-white cursor-pointer text-sm transition-colors focus:border-indigo-500 focus:outline-none"
+            className="px-3 lg:px-4 py-2 border-2 border-gray-200 rounded-lg bg-white cursor-pointer text-sm transition-colors focus:border-indigo-500 focus:outline-none"
           >
             <option value="force">Force Layout</option>
             <option value="circular">Circular Layout</option>
@@ -1232,13 +1232,13 @@ const Visualizer = () => {
           </select>
           <button
             onClick={() => detectIssues()}
-            className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5"
+            className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-3 lg:px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 text-sm"
           >
             Detect Issues
           </button>
           <button
             onClick={exportGraph}
-            className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5"
+            className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-3 lg:px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 text-sm"
           >
             Export Graph
           </button>
@@ -1247,9 +1247,9 @@ const Visualizer = () => {
 
       {/* Error Display */}
       {error && (
-        <div className="mx-5 mb-5 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
+        <div className="mx-4 lg:mx-6 mb-4 lg:mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
           <span className="text-red-500">⚠️</span>
-          <span>{error}</span>
+          <span className="text-sm lg:text-base">{error}</span>
           <button 
             onClick={() => setError(null)}
             className="ml-auto text-red-500 hover:text-red-700"
@@ -1260,16 +1260,9 @@ const Visualizer = () => {
       )}
 
       {/* Main Content */}
-      <div className="flex flex-1 gap-5 p-5 max-w-7xl w-full mx-auto">
+      <div className="flex flex-col lg:flex-row flex-1 gap-4 lg:gap-6 p-4 lg:p-6 max-w-full lg:max-w-7xl w-full mx-auto">
         {/* Sidebar */}
-        <div className="w-80 bg-white/95 backdrop-blur-md rounded-2xl p-6 shadow-lg overflow-y-auto max-h-full">
-          <input
-            type="text"
-            placeholder="Search dependencies..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full p-3 border-2 border-gray-200 rounded-lg text-sm mb-5 transition-colors focus:border-indigo-500 focus:outline-none"
-          />
+        <div className="w-full lg:w-80 xl:w-96 bg-white/95 backdrop-blur-md rounded-2xl p-4 lg:p-6 shadow-lg overflow-y-auto max-h-96 lg:max-h-full">
           
           {/* Statistics Card */}
           <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-5 mb-6">
@@ -1439,16 +1432,16 @@ const Visualizer = () => {
         </div>
 
         {/* Visualization Container */}
-        <div className="flex-1 bg-white/95 backdrop-blur-md rounded-2xl shadow-lg relative overflow-hidden">
-          <svg ref={svgRef} className="w-full h-full"></svg>
+        <div className="flex-1 min-h-96 lg:min-h-[600px] bg-white/95 backdrop-blur-md rounded-2xl shadow-lg relative overflow-hidden">
+          <svg ref={svgRef} className="w-full h-full min-h-96 lg:min-h-[600px]"></svg>
           
           {/* Loading overlay for class info */}
           {loadingClassInfo && (
             <div className="absolute inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-20">
-              <div className="bg-white rounded-lg p-8 shadow-xl flex flex-col items-center gap-4 max-w-sm">
+              <div className="bg-white rounded-lg p-6 lg:p-8 shadow-xl flex flex-col items-center gap-4 max-w-sm mx-4">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
                 <div className="text-center">
-                  <div className="text-gray-800 font-semibold text-lg mb-1">
+                  <div className="text-gray-800 font-semibold text-base lg:text-lg mb-1">
                     Analyzing Class: {selectedNode}
                   </div>
                   <div className="text-gray-600 text-sm">
@@ -1476,41 +1469,41 @@ const Visualizer = () => {
           ></div>
           
           {/* Legend */}
-          <div className="absolute bottom-5 right-5 bg-white/95 p-4 rounded-lg shadow-md">
-            <div className="space-y-2">
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-5 h-5 rounded-full" style={{backgroundColor: "#ff9ff3"}}></div>
+          <div className="absolute bottom-3 lg:bottom-5 right-3 lg:right-5 bg-white/95 p-3 lg:p-4 rounded-lg shadow-md text-xs lg:text-sm">
+            <div className="space-y-1 lg:space-y-2">
+              <div className="flex items-center gap-2 lg:gap-3 text-xs lg:text-sm">
+                <div className="w-4 lg:w-5 h-4 lg:h-5 rounded-full" style={{backgroundColor: "#ff9ff3"}}></div>
                 <span>Provider</span>
               </div>
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-5 h-5 rounded-full" style={{backgroundColor: "#95a5a6"}}></div>
+              <div className="flex items-center gap-2 lg:gap-3 text-xs lg:text-sm">
+                <div className="w-4 lg:w-5 h-4 lg:h-5 rounded-full" style={{backgroundColor: "#95a5a6"}}></div>
                 <span>Class</span>
               </div>
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-5 h-5 rounded-full bg-yellow-400"></div>
+              <div className="flex items-center gap-2 lg:gap-3 text-xs lg:text-sm">
+                <div className="w-4 lg:w-5 h-4 lg:h-5 rounded-full bg-yellow-400"></div>
                 <span>Singleton</span>
               </div>
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-5 h-5 rounded-full bg-red-400"></div>
+              <div className="flex items-center gap-2 lg:gap-3 text-xs lg:text-sm">
+                <div className="w-4 lg:w-5 h-4 lg:h-5 rounded-full bg-red-400"></div>
                 <span>Circular Dependency</span>
               </div>
-              <div className="mt-3 pt-2 border-t border-gray-200">
-                <div className="text-xs font-medium text-gray-600 mb-2">Relationships:</div>
+              <div className="mt-2 lg:mt-3 pt-1 lg:pt-2 border-t border-gray-200">
+                <div className="text-xs font-medium text-gray-600 mb-1 lg:mb-2">Relationships:</div>
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 text-xs">
-                    <div className="w-4 h-0.5 bg-blue-500"></div>
+                    <div className="w-3 lg:w-4 h-0.5 bg-blue-500"></div>
                     <span>extends</span>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
-                    <div className="w-4 h-0.5 bg-green-500"></div>
+                    <div className="w-3 lg:w-4 h-0.5 bg-green-500"></div>
                     <span>depends</span>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
-                    <div className="w-4 h-0.5 bg-purple-500"></div>
+                    <div className="w-3 lg:w-4 h-0.5 bg-purple-500"></div>
                     <span>provides</span>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
-                    <div className="w-4 h-0.5 bg-orange-500"></div>
+                    <div className="w-3 lg:w-4 h-0.5 bg-orange-500"></div>
                     <span>injects</span>
                   </div>
                 </div>
