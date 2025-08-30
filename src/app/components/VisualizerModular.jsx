@@ -3,13 +3,15 @@ import * as d3 from 'd3';
 import { 
   useProjectData, 
   useClassExploration, 
-  useFocusNavigation
+  useFocusNavigation, 
+  useApiOperations 
 } from '../hooks/useVisualizerState';
 import { 
   calculateStatistics, 
   detectIssues, 
   detectCircularDependencies,
-  calculateNodeLevels
+  calculateNodeLevels,
+  filterNodesBySearch 
 } from '../utils/dataUtils';
 import { 
   getNodeColor, 
@@ -17,7 +19,6 @@ import {
   getMarkerType, 
   createArrowMarkers,
   setupZoomBehavior,
-  createLinkArc,
   getFilteredData 
 } from '../utils/d3Utils';
 
@@ -27,21 +28,7 @@ const Visualizer = () => {
   const simulationRef = useRef();
   
   // State from custom hooks
-  const { 
-    projectData, 
-    setProjectData, 
-    loading, 
-    setLoading, 
-    error, 
-    setError, 
-    statistics, 
-    setStatistics, 
-    issues, 
-    setIssues, 
-    analyzeProject,
-    convertDotToSlash 
-  } = useProjectData();
-  
+  const { projectData, setProjectData, statistics, setStatistics, issues, setIssues } = useProjectData();
   const { 
     selectedNode, 
     setSelectedNode, 
@@ -53,26 +40,24 @@ const Visualizer = () => {
     setExploredNodes, 
     isExploring, 
     setIsExploring,
+    convertDotToSlash,
     fetchClassInfo 
   } = useClassExploration();
-  
   const { 
-    historyStack, 
-    setHistoryStack, 
+    previousState, 
+    setPreviousState, 
     focusedNode, 
     setFocusedNode, 
     loadingFocus, 
     setLoadingFocus,
     focusOnNode,
-    goBack,
-    clearHistory,
-    canGoBack 
+    goBack 
   } = useFocusNavigation();
+  const { loading, setLoading, error, setError, analyzeProject } = useApiOperations();
 
   // Local state
   const [currentLayout, setCurrentLayout] = useState('force');
   const [searchTerm, setSearchTerm] = useState('');
-  const [hidePreviewSteps, setHidePreviewSteps] = useState(true); // Toggle for hiding previous steps
 
   // Focus function with exact original behavior
   const handleFocusOnNode = async (nodeId) => {
@@ -86,19 +71,32 @@ const Visualizer = () => {
     }
   };
 
-  // Go back function with exact original behavior  
+  // Go back function with exact original behavior
   const handleGoBack = () => {
     const result = goBack();
     if (result) {
       setProjectData(result);
-      // Reset view after going back
+      
+      // Clear class details section when going back
+      setSelectedNode(null);
+      setClassInfo(null);
+      setExploredNodes(new Set());
+      
+      // Reset visual selection
+      setTimeout(() => {
+        d3.selectAll(".node circle")
+          .style("stroke", "#fff")
+          .style("stroke-width", 2);
+      }, 50);
+      
+      // Reset view after state change
       setTimeout(() => {
         resetView();
       }, 100);
     }
   };
 
-  // Reset view function (exact original)
+  // Reset view function (exact copy from original)
   const resetView = () => {
     // Reset zoom and center the view
     if (svgRef.current) {
@@ -107,101 +105,100 @@ const Visualizer = () => {
       const width = container.clientWidth;
       const height = container.clientHeight;
       
-      svg.transition()
-        .duration(750)
-        .call(
-          d3.zoom().transform,
-          d3.zoomIdentity.translate(width / 2, height / 2).scale(1)
+      // Get bounds of all nodes
+      if (projectData.nodes.length > 0) {
+        const bounds = {
+          minX: Math.min(...projectData.nodes.map(d => d.x || 0)),
+          maxX: Math.max(...projectData.nodes.map(d => d.x || 0)),
+          minY: Math.min(...projectData.nodes.map(d => d.y || 0)),
+          maxY: Math.max(...projectData.nodes.map(d => d.y || 0))
+        };
+        
+        const graphWidth = bounds.maxX - bounds.minX;
+        const graphHeight = bounds.maxY - bounds.minY;
+        
+        // Add padding
+        const padding = 50;
+        const scale = Math.min(
+          (width - padding * 2) / (graphWidth || width),
+          (height - padding * 2) / (graphHeight || height),
+          1 // Don't scale up beyond 1x
         );
+        
+        const centerX = bounds.minX + graphWidth / 2;
+        const centerY = bounds.minY + graphHeight / 2;
+        
+        const translateX = width / 2 - centerX * scale;
+        const translateY = height / 2 - centerY * scale;
+        
+        svg.transition()
+          .duration(750)
+          .call(
+            d3.zoom().transform,
+            d3.zoomIdentity.translate(translateX, translateY).scale(scale)
+          );
+      } else {
+        // Fallback to center reset
+        svg.transition()
+          .duration(750)
+          .call(
+            d3.zoom().transform,
+            d3.zoomIdentity.translate(0, 0).scale(1)
+          );
+      }
     }
   };
 
-  // Fetch class info with exact original behavior
-  const handleFetchClassInfo = async (className, hideSteps = hidePreviewSteps) => {
-    // Set loading state for class info
-    setLoadingClassInfo(true);
-    setSelectedNode(className);
-    
-    try {
-      // Save current state to history stack if we're hiding previous steps
-      if (hideSteps && projectData && projectData.nodes && projectData.nodes.length > 0) {
-        setHistoryStack(prevStack => [
-          ...prevStack,
-          {
-            nodes: [...projectData.nodes],
-            links: [...projectData.links],
-            focusedNode: focusedNode
-          }
-        ]);
-      }
-      
-      const updatedProjectData = await fetchClassInfo(className, convertDotToSlash, projectData, hideSteps);
-      
-      // Update project data with explored relationships
-      if (updatedProjectData) {
-        setProjectData(updatedProjectData);
-      }
-      
-      // Highlight selected node (exact original styling)
-      d3.selectAll(".node circle")
-        .style("stroke", "#fff")
-        .style("stroke-width", node => node.id === className ? 4 : 2);
-    } catch (error) {
-      console.error('Error handling class info fetch:', error);
-    } finally {
-      // Always clear loading state
-      setLoadingClassInfo(false);
-    }
-  };
+  // Utility functions using the exact original logic
+  const detectCircularDependenciesLocal = useCallback(() => {
+    return detectCircularDependencies(projectData.nodes, projectData.links);
+  }, [projectData]);
 
-  // Update statistics when project data changes (exact original)
+  const calculateNodeLevelsLocal = useCallback(() => {
+    return calculateNodeLevels(projectData.nodes, projectData.links);
+  }, [projectData]);
+
   const updateStatistics = useCallback(() => {
-    if (!projectData || !projectData.nodes) {
-      return;
-    }
-    const newStatistics = calculateStatistics(projectData, focusedNode);
-    setStatistics(newStatistics);
+    const newStats = calculateStatistics(projectData.nodes, projectData.links, focusedNode);
+    setStatistics(newStats);
   }, [projectData, focusedNode, setStatistics]);
 
-  // Detect issues function (exact original)
   const detectIssuesLocal = useCallback(() => {
-    if (!projectData || !projectData.nodes) {
-      return;
-    }
-    const detectedIssues = detectIssues(projectData, focusedNode);
+    const detectedIssues = detectIssues(projectData.nodes, projectData.links, focusedNode);
     setIssues(detectedIssues);
   }, [projectData, focusedNode, setIssues]);
 
-  // Circular dependencies detection (exact original)
-  const detectCircularDependenciesLocal = useCallback(() => {
-    if (!projectData || !projectData.nodes) {
-      return [];
+  // API function with exact original behavior
+  const handleAnalyzeProject = async () => {
+    try {
+      const transformedData = await analyzeProject(convertDotToSlash, setPreviousState, setFocusedNode);
+      setProjectData(transformedData);
+      
+      // Reset view after loading new data with longer delay for force simulation
+      setTimeout(() => {
+        resetView();
+      }, 1000);
+    } catch (err) {
+      // Error already handled in the hook
     }
-    return detectCircularDependencies(projectData);
-  }, [projectData]);
+  };
 
-  // Node levels calculation (exact original)
-  const calculateNodeLevelsLocal = useCallback(() => {
-    if (!projectData || !projectData.nodes) {
-      return {};
+  // Class info fetch with exact original behavior
+  const handleFetchClassInfo = async (className) => {
+    try {
+      await fetchClassInfo(className, (result) => {
+        if (result) {
+          setProjectData(result);
+        }
+      });
+    } catch (err) {
+      setError(`Failed to explore class hierarchy: ${err.message}`);
     }
-    return calculateNodeLevels(projectData);
-  }, [projectData]);
+  };
 
-  // Render graph function - preserving all original D3 logic
+  // Render graph with exact original D3 logic
   const renderGraph = useCallback(() => {
     if (!svgRef.current) return;
-
-    // Check if projectData exists and has nodes
-    if (!projectData || !projectData.nodes || !projectData.links) {
-      console.log('ProjectData not ready yet, skipping render');
-      return;
-    }
-
-    // Stop previous simulation if it exists
-    if (simulationRef.current) {
-      simulationRef.current.stop();
-    }
 
     const svg = d3.select(svgRef.current);
     const container = svgRef.current.parentElement;
@@ -214,7 +211,7 @@ const Visualizer = () => {
     const g = svg.append("g");
     const tooltip = d3.select(tooltipRef.current);
 
-    // Get filtered data using utility function
+    // Use exact original filtering logic
     const { visibleNodes, validLinks } = getFilteredData(projectData, focusedNode);
 
     console.log(`Showing ${visibleNodes.length} out of ${projectData.nodes.length} nodes`);
@@ -225,41 +222,31 @@ const Visualizer = () => {
     // Detect circular dependencies
     const circularPairs = detectCircularDependenciesLocal();
 
-    console.log('Valid links after filtering:', validLinks.length, 'out of', projectData.links.length);
-
-    // Create arrow markers with different colors for different relationship types
+    // Create arrow markers
     createArrowMarkers(svg);
 
-    // Create links
+    // Function to get link color with circular detection
+    const getLinkColorWithCircular = (link) => getLinkColor(link, circularPairs);
+    const getMarkerTypeWithCircular = (link) => getMarkerType(link, circularPairs);
+
+    // Create links (exact original logic)
     const link = g.append("g")
       .selectAll("path")
       .data(validLinks)
       .enter().append("path")
       .attr("fill", "none")
-      .attr("stroke", d => getLinkColor(d, circularPairs))
-      .attr("stroke-width", 2.5) // Slightly thicker lines
-      .attr("stroke-opacity", 0.8) // Higher opacity for better visibility
-      .attr("marker-end", d => `url(#arrow-${getMarkerType(d, circularPairs)})`)
+      .attr("stroke", getLinkColorWithCircular)
+      .attr("stroke-width", 2)
+      .attr("stroke-opacity", 0.7)
+      .attr("marker-end", d => `url(#arrow-${getMarkerTypeWithCircular(d)})`)
       .classed("circular", d => {
         return circularPairs.some(pair => 
           (pair[0] === d.source && pair[1] === d.target) ||
           (pair[0] === d.target && pair[1] === d.source)
         );
-      })
-      .on("mouseover", function(event, d) {
-        // Highlight arrow on hover
-        d3.select(this)
-          .attr("stroke-width", 4)
-          .attr("stroke-opacity", 1);
-      })
-      .on("mouseout", function(event, d) {
-        // Reset arrow styling
-        d3.select(this)
-          .attr("stroke-width", 2.5)
-          .attr("stroke-opacity", 0.8);
       });
 
-    // Add relationship labels on links
+    // Add relationship labels on links (exact original)
     const linkLabels = g.append("g")
       .selectAll("text")
       .data(validLinks)
@@ -272,7 +259,7 @@ const Visualizer = () => {
       .style("user-select", "none")
       .text(d => d.type || "");
 
-    // Create nodes
+    // Create nodes (exact original logic)
     const node = g.append("g")
       .selectAll("g")
       .data(visibleNodes)
@@ -287,33 +274,107 @@ const Visualizer = () => {
       .attr("stroke", "#fff")
       .attr("stroke-width", 2)
       .on("mouseover", function(event, d) {
-        tooltip.transition().duration(200).style("opacity", 1);
+        // Exact original hover logic
+        const connectedNodes = new Set([d.id]);
+        const connectedLinks = new Set();
+        
+        validLinks.forEach(link => {
+          const sourceId = link.source?.id || link.source;
+          const targetId = link.target?.id || link.target;
+          
+          if (sourceId === d.id) {
+            connectedNodes.add(targetId);
+            connectedLinks.add(link);
+          }
+          if (targetId === d.id) {
+            connectedNodes.add(sourceId);
+            connectedLinks.add(link);
+          }
+        });
+        
+        // Highlight connected nodes
+        d3.selectAll(".node circle")
+          .style("opacity", node => connectedNodes.has(node.id) ? 1 : 0.3)
+          .style("stroke-width", node => connectedNodes.has(node.id) ? 3 : 2);
+        
+        // Highlight connected links
+        d3.selectAll("path")
+          .style("opacity", link => {
+            const sourceId = link.source?.id || link.source;
+            const targetId = link.target?.id || link.target;
+            return (sourceId === d.id || targetId === d.id) ? 1 : 0.1;
+          })
+          .style("stroke-width", link => {
+            const sourceId = link.source?.id || link.source;
+            const targetId = link.target?.id || link.target;
+            return (sourceId === d.id || targetId === d.id) ? 3 : 2;
+          });
+
+        // Show tooltip with dependency info (exact original)
+        const dependencies = validLinks
+          .filter(link => link.source === d.id || link.source?.id === d.id)
+          .map(link => link.target?.id || link.target);
+        
+        const dependents = validLinks
+          .filter(link => link.target === d.id || link.target?.id === d.id)
+          .map(link => link.source?.id || link.source);
+        
         tooltip.html(`
           <div class="font-semibold">${d.id}</div>
           <div>Type: ${d.type}</div>
           <div>Scope: ${d.scope}</div>
-          ${d.isProvider ? '<div class="text-purple-400">Provider</div>' : ''}
+          <div class="mt-2">
+            <div class="text-green-300">Dependencies (${dependencies.length}):</div>
+            <div class="text-xs">${dependencies.length > 0 ? dependencies.join(", ") : "None"}</div>
+          </div>
+          <div class="mt-1">
+            <div class="text-blue-300">Dependents (${dependents.length}):</div>
+            <div class="text-xs">${dependents.length > 0 ? dependents.join(", ") : "None"}</div>
+          </div>
+          <div class="mt-2 text-yellow-300 text-xs">Click for detailed info</div>
         `)
         .style("left", (event.pageX + 10) + "px")
-        .style("top", (event.pageY - 10) + "px");
+        .style("top", (event.pageY - 10) + "px")
+        .style("opacity", 1);
       })
       .on("mouseout", function() {
-        tooltip.transition().duration(200).style("opacity", 0);
+        // Reset all visual effects (exact original)
+        d3.selectAll(".node circle")
+          .style("opacity", 1)
+          .style("stroke-width", 2);
+        
+        d3.selectAll("path")
+          .style("opacity", 0.4)
+          .style("stroke-width", 2);
+        
+        tooltip.style("opacity", 0);
       })
       .on("click", function(event, d) {
-        // Async function to handle the click
+        // Exact original click handler
         (async () => {
           try {
-            // Only fetch class info and explore relationships
-            // The focusing should happen after exploration is complete
+            // Set loading state for class info
+            setLoadingClassInfo(true);
+            setSelectedNode(d.id);
+            
+            // Focus on this node's relationships and fetch class info
+            await handleFocusOnNode(d.id);
             await handleFetchClassInfo(d.id);
+            
+            // Visual feedback for clicked node
+            d3.selectAll(".node circle")
+              .style("stroke", node => node.id === d.id ? "#ff6b6b" : "#fff")
+              .style("stroke-width", node => node.id === d.id ? 4 : 2);
           } catch (error) {
             console.error('Error handling node click:', error);
+          } finally {
+            // Always clear loading state
+            setLoadingClassInfo(false);
           }
         })();
       });
 
-    // Add labels
+    // Add labels (exact original)
     node.append("text")
       .attr("dy", 25)
       .attr("text-anchor", "middle")
@@ -324,23 +385,49 @@ const Visualizer = () => {
       .style("pointer-events", "none")
       .style("user-select", "none");
 
-    // Link arc function for curved links
-    const linkArc = (d) => createLinkArc(d, visibleNodes);
+    // Link arc function (exact original)
+    const linkArc = (d) => {
+      const sourceNode = projectData.nodes.find(n => n.id === (d.source?.id || d.source));
+      const targetNode = projectData.nodes.find(n => n.id === (d.target?.id || d.target));
+      
+      if (!sourceNode || !targetNode) return "";
+      
+      const dx = targetNode.x - sourceNode.x;
+      const dy = targetNode.y - sourceNode.y;
+      const dr = Math.sqrt(dx * dx + dy * dy);
+      
+      return `M${sourceNode.x},${sourceNode.y}A${dr},${dr} 0 0,1 ${targetNode.x},${targetNode.y}`;
+    };
 
-    // Setup simulation based on layout
+    // Setup simulation based on layout (exact original logic)
     if (currentLayout === 'force') {
-      const simulation = d3.forceSimulation(visibleNodes)
+      simulationRef.current = d3.forceSimulation(visibleNodes)
         .force("link", d3.forceLink(validLinks)
           .id(d => d.id)
-          .distance(100)
-          .strength(0.5))
-        .force("charge", d3.forceManyBody().strength(-800))
+          .distance(100))
+        .force("charge", d3.forceManyBody().strength(-300))
         .force("center", d3.forceCenter(width / 2, height / 2))
-        .force("collision", d3.forceCollide().radius(25));
+        .force("collision", d3.forceCollide().radius(30));
 
-      simulationRef.current = simulation;
+      const drag = d3.drag()
+        .on("start", (event, d) => {
+          if (!event.active) simulationRef.current.alphaTarget(0.3).restart();
+          d.fx = d.x;
+          d.fy = d.y;
+        })
+        .on("drag", (event, d) => {
+          d.fx = event.x;
+          d.fy = event.y;
+        })
+        .on("end", (event, d) => {
+          if (!event.active) simulationRef.current.alphaTarget(0);
+          d.fx = null;
+          d.fy = null;
+        });
 
-      simulation.on("tick", () => {
+      node.call(drag);
+
+      simulationRef.current.on("tick", () => {
         link.attr("d", linkArc);
         
         // Position link labels at the midpoint of each link
@@ -364,33 +451,32 @@ const Visualizer = () => {
         node.attr("transform", d => `translate(${d.x},${d.y})`);
       });
     } else {
-      // Static layouts
+      // Apply static layouts (exact original logic)
       if (currentLayout === 'circular') {
-        const radius = Math.min(width, height) / 3;
+        const radius = Math.min(width, height) / 2 - 100;
         const angleStep = (2 * Math.PI) / visibleNodes.length;
         
         visibleNodes.forEach((node, i) => {
-          node.x = width / 2 + radius * Math.cos(i * angleStep);
-          node.y = height / 2 + radius * Math.sin(i * angleStep);
+          node.x = width / 2 + radius * Math.cos(i * angleStep - Math.PI / 2);
+          node.y = height / 2 + radius * Math.sin(i * angleStep - Math.PI / 2);
         });
       } else if (currentLayout === 'hierarchical') {
         const levels = calculateNodeLevelsLocal();
-        const levelGroups = {};
+        const maxLevel = Math.max(...Object.values(levels));
+        const levelHeight = height / (maxLevel + 2);
+        const nodesPerLevel = {};
         
         visibleNodes.forEach(node => {
           const level = levels[node.id] || 0;
-          if (!levelGroups[level]) levelGroups[level] = [];
-          levelGroups[level].push(node);
+          if (!nodesPerLevel[level]) nodesPerLevel[level] = [];
+          nodesPerLevel[level].push(node);
         });
         
-        Object.keys(levelGroups).forEach(level => {
-          const nodesInLevel = levelGroups[level];
-          const levelY = (parseInt(level) + 1) * (height / (Object.keys(levelGroups).length + 1));
-          const spacing = width / (nodesInLevel.length + 1);
-          
-          nodesInLevel.forEach((node, i) => {
-            node.x = (i + 1) * spacing;
-            node.y = levelY;
+        Object.entries(nodesPerLevel).forEach(([level, nodes]) => {
+          const levelWidth = width / (nodes.length + 1);
+          nodes.forEach((node, i) => {
+            node.x = levelWidth * (i + 1);
+            node.y = levelHeight * (parseInt(level) + 1);
           });
         });
       }
@@ -442,30 +528,6 @@ const Visualizer = () => {
     renderGraph();
   }, [renderGraph]);
 
-  // Auto-load base classes on component mount (exact original behavior)
-  useEffect(() => {
-    analyzeProject(clearHistory, setFocusedNode, resetView);
-  }, []); // Empty dependency array means this runs once on mount
-
-  // Handle window resize
-  useEffect(() => {
-    const handleResize = () => {
-      renderGraph();
-    };
-    
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [renderGraph]);
-
-  // Cleanup simulation on unmount
-  useEffect(() => {
-    return () => {
-      if (simulationRef.current) {
-        simulationRef.current.stop();
-      }
-    };
-  }, []);
-
   // Export graph function
   const exportGraph = useCallback(() => {
     const dataStr = JSON.stringify(projectData, null, 2);
@@ -488,50 +550,32 @@ const Visualizer = () => {
             K
           </div>
           <div>
-            <h1 className="text-xl lg:text-2xl font-semibold text-gray-800">Knit Dependency Visualizer</h1>
+            <h1 className="text-xl lg:text-2xl font-semibold text-gray-800">
+              Knit Dependency Visualizer
+            </h1>
             {focusedNode && (
               <p className="text-sm text-gray-600 mt-1">
                 Focused on: <span className="font-medium text-indigo-600">{focusedNode}</span>
               </p>
             )}
-            {historyStack.length > 0 && (
-              <p className="text-xs text-gray-500 mt-1">
-                Navigation level: {historyStack.length} 
-                {historyStack.length > 1 && <span className="ml-1">({historyStack.length} steps back available)</span>}
-              </p>
-            )}
           </div>
         </div>
+        
         <div className="flex flex-wrap gap-2 lg:gap-4 items-center">
-          {canGoBack && (
-            <button
-              onClick={handleGoBack}
-              className="bg-gradient-to-r from-gray-500 to-gray-600 text-white px-3 lg:px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 flex items-center gap-2 text-sm"
-            >
-              ← Back {historyStack.length > 1 ? `(${historyStack.length} levels)` : 'to Previous View'}
-            </button>
-          )}
-          {focusedNode && !canGoBack && (
-            <button
-              onClick={() => {
-                setFocusedNode(null);
-                setSelectedNode(null);
-                setClassInfo(null);
-                setExploredNodes(new Set());
-                // Reset visual selection
-                d3.selectAll(".node circle")
-                  .style("stroke", "#fff")
-                  .style("stroke-width", 2);
-                // Reset view
-                setTimeout(() => {
-                  resetView();
-                }, 100);
-              }}
-              className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-3 lg:px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 flex items-center gap-2 text-sm"
-            >
-              Clear Focus
-            </button>
-          )}
+          <button
+            onClick={handleAnalyzeProject}
+            disabled={loading}
+            className="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-3 lg:px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 flex items-center gap-2 text-sm disabled:opacity-50"
+          >
+            {loading ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Analyzing...
+              </>
+            ) : (
+              '📦 Load Base Classes'
+            )}
+          </button>
           <select 
             value={currentLayout}
             onChange={(e) => setCurrentLayout(e.target.value)}
@@ -542,7 +586,7 @@ const Visualizer = () => {
             <option value="hierarchical">Hierarchical Layout</option>
           </select>
           <button
-            onClick={() => detectIssuesLocal()}
+            onClick={detectIssuesLocal}
             className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-3 lg:px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 text-sm"
           >
             Detect Issues
@@ -575,16 +619,7 @@ const Visualizer = () => {
         {/* Sidebar */}
         <div className="w-full lg:w-80 xl:w-96 bg-white/95 backdrop-blur-md rounded-2xl p-4 lg:p-6 shadow-lg overflow-y-auto max-h-96 lg:max-h-full">
           
-          {/* Search Input */}
-          <input
-            type="text"
-            placeholder="Search dependencies..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full p-3 border-2 border-gray-200 rounded-lg text-sm mb-4 lg:mb-5 transition-colors focus:border-indigo-500 focus:outline-none"
-          />
-          
-          {/* Statistics */}
+          {/* Statistics Card */}
           <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-5 mb-6">
             <h3 className="text-gray-800 text-lg font-semibold mb-4 flex items-center gap-2">
               📊 Project Statistics
@@ -613,7 +648,7 @@ const Visualizer = () => {
             </div>
           </div>
 
-          {/* Issues */}
+          {/* Issues Section - Only show when there are issues */}
           {issues.length > 0 && (
             <div>
               <h3 className="text-gray-800 text-lg font-semibold mb-4 flex items-center gap-2">
@@ -639,7 +674,7 @@ const Visualizer = () => {
             </div>
           )}
 
-          {/* Class Details */}
+          {/* Class Details Section */}
           {selectedNode && (
             <div className="mt-6">
               <h3 className="text-gray-800 text-lg font-semibold mb-4 flex items-center gap-2">
@@ -731,9 +766,11 @@ const Visualizer = () => {
                         setClassInfo(null);
                         setExploredNodes(new Set());
                         // Reset visual selection
-                        d3.selectAll(".node circle")
-                          .style("stroke", "#fff")
-                          .style("stroke-width", 2);
+                        setTimeout(() => {
+                          d3.selectAll(".node circle")
+                            .style("stroke", "#fff")
+                            .style("stroke-width", 2);
+                        }, 50);
                       }}
                       className="mt-3 text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded transition-colors"
                     >
