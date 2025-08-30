@@ -188,279 +188,59 @@ export const detectIssues = (projectData, focusedNode = null) => {
   
   return issues;
 };
-
+const convertDotToSlash = useCallback((name) => {
+    if (!name) return name;
+    return name.replace(/\./g, '/');
+  }, []);
 /**
  * Transform base classes data from API response
  */
-export const transformBaseClasses = (baseClassesData) => {
-  console.log('API Response:', baseClassesData);
-  
-  // Handle the actual API response structure
-  let classArray = baseClassesData;
-  let parentClass = "java.lang.Object"; // Default parent
-  
-  // If the data has a base_classes property, use that
-  if (baseClassesData && baseClassesData.base_classes && Array.isArray(baseClassesData.base_classes)) {
-    classArray = baseClassesData.base_classes;
-    // Check if there's a parent_class specified in the response
-    if (baseClassesData.parent_class) {
-      parentClass = baseClassesData.parent_class;
-    }
-  }
-  
-  if (!classArray || !Array.isArray(classArray)) {
-    console.warn('Invalid base classes data:', baseClassesData);
-    return { nodes: [], links: [] };
-  }
+export const transformBaseClasses = (apiData) => {
+    console.log('API Response:', apiData);
+    let nodes = [];
+    let links = [];
 
-  const nodes = [];
-  const links = [];
-  const nodeSet = new Set();
+    // Iterate over each parent class key
+    Object.keys(apiData).forEach(parent => {
+      // Skip count keys
+      if (parent.endsWith('_count') || parent === 'group_count') return;
+      const children = apiData[parent];
+      if (!Array.isArray(children)) return;
 
-  // Helper function to convert dot notation to slash notation
-  const convertDotToSlash = (name) => {
-    if (!name) return name;
-    return name.replace(/\./g, '/');
-  };
-
-  // Add the parent class node (e.g., Object)
-  const parentNodeName = convertDotToSlash(parentClass);
-  // Always add the parent class node, including java.lang.Object if it will be referenced
-  if (!nodeSet.has(parentNodeName)) {
-    nodes.push({
-      id: parentNodeName,
-      type: "class",
-      scope: "module", 
-      isProvider: false,
-      fullName: parentNodeName
-    });
-    nodeSet.add(parentNodeName);
-  }
-
-  // Process each base class
-  classArray.forEach(classData => {
-    if (!classData || !classData.name) {
-      console.warn('Invalid class data:', classData);
-      return;
-    }
-
-    const className = convertDotToSlash(classData.name);
-    
-    // Add the main class node if not already added
-    if (!nodeSet.has(className)) {
-      nodes.push({
-        id: className,
-        type: classData.is_provider ? "provider" : "class",
-        scope: classData.scope || "module",
-        isProvider: classData.is_provider || false,
-        fullName: className,
-        ...classData
-      });
-      nodeSet.add(className);
-    }
-
-    // Add inheritance relationship to parent class
-    if (parentClass && parentClass !== className) {
-      const targetParent = convertDotToSlash(parentClass);
-      
-      // Only add link if we don't already have it
-      const existingLink = links.find(link => 
-        link.source === className && link.target === targetParent && link.type === "extends"
-      );
-      
-      if (!existingLink) {
-        links.push({
-          source: className,
-          target: targetParent,
-          type: "extends"
-        });
-      }
-    }
-
-    // Add parent class relationship if specified in individual class data
-    if (classData.parent_class && classData.parent_class !== className && classData.parent_class !== parentClass) {
-      const specificParent = convertDotToSlash(classData.parent_class);
-      
-      // Add parent node if not already added
-      if (!nodeSet.has(specificParent)) {
+      // Add parent node
+      if (parent !== 'null' && parent !== 'None') {
         nodes.push({
-          id: specificParent,
+          id: convertDotToSlash(parent),
           type: "class",
           scope: "module",
           isProvider: false,
-          fullName: specificParent
-        });
-        nodeSet.add(specificParent);
-      }
-      
-      // Add inheritance link
-      const existingSpecificLink = links.find(link => 
-        link.source === className && link.target === specificParent && link.type === "extends"
-      );
-      
-      if (!existingSpecificLink) {
-        links.push({
-          source: className,
-          target: specificParent,
-          type: "extends"
+          fullName: convertDotToSlash(parent)
         });
       }
-    }
 
-    // Add provider relationships if specified
-    if (classData.provider_class && classData.provider_class !== className) {
-      const providerClass = convertDotToSlash(classData.provider_class);
-      
-      // Add provider node if not already added
-      if (!nodeSet.has(providerClass)) {
+      // Add child nodes and links
+      children.forEach(child => {
         nodes.push({
-          id: providerClass,
-          type: "provider",
+          id: convertDotToSlash(child.name),
+          type: child.is_provider ? "provider" : "class",
           scope: "module",
-          isProvider: true,
-          fullName: providerClass
+          isProvider: child.is_provider,
+          fullName: convertDotToSlash(child.name)
         });
-        nodeSet.add(providerClass);
-      }
-      
-      // Add provider link
-      const existingProviderLink = links.find(link => 
-        link.source === providerClass && link.target === className && link.type === "provides"
-      );
-      
-      if (!existingProviderLink) {
-        links.push({
-          source: providerClass,
-          target: className,
-          type: "provides"
-        });
-      }
-    }
-
-    // Process parameters (dependencies) if available
-    if (classData.parameters && Array.isArray(classData.parameters)) {
-      classData.parameters.forEach(param => {
-        if (param && param.name && param.name !== className) {
-          const paramName = convertDotToSlash(param.name);
-          
-          // Add parameter node if not already added
-          if (!nodeSet.has(paramName)) {
-            nodes.push({
-              id: paramName,
-              type: param.is_provider ? "provider" : "class",
-              scope: "module",
-              isProvider: param.is_provider || false,
-              fullName: paramName
-            });
-            nodeSet.add(paramName);
-          }
-          
-          // Add dependency link
-          const existingDepLink = links.find(link => 
-            link.source === className && link.target === paramName && link.type === "depends"
-          );
-          
-          if (!existingDepLink) {
-            links.push({
-              source: className,
-              target: paramName,
-              type: "depends"
-            });
-          }
+        // Link from child to parent
+        if (parent !== 'null' && parent !== 'None') {
+          links.push({
+            source: convertDotToSlash(child.name),
+            target: convertDotToSlash(parent),
+            type: "extends"
+          });
         }
       });
-    }
+    });
 
-    // Process components if available
-    if (classData.components && Array.isArray(classData.components)) {
-      classData.components.forEach(comp => {
-        if (comp && comp.name && comp.name !== className) {
-          const compName = convertDotToSlash(comp.name);
-          
-          // Add component node if not already added
-          if (!nodeSet.has(compName)) {
-            nodes.push({
-              id: compName,
-              type: comp.is_provider ? "provider" : "class",
-              scope: "module",
-              isProvider: comp.is_provider || false,
-              fullName: compName
-            });
-            nodeSet.add(compName);
-          }
-          
-          // Add component link
-          const existingCompLink = links.find(link => 
-            link.source === className && link.target === compName && link.type === "provides"
-          );
-          
-          if (!existingCompLink) {
-            links.push({
-              source: className,
-              target: compName,
-              type: "provides"
-            });
-          }
-        }
-      });
-    }
-
-    // Process injections if available
-    if (classData.injections && Array.isArray(classData.injections)) {
-      classData.injections.forEach(inj => {
-        if (inj && inj.name && inj.name !== className) {
-          const injName = convertDotToSlash(inj.name);
-          
-          // Add injection node if not already added
-          if (!nodeSet.has(injName)) {
-            nodes.push({
-              id: injName,
-              type: inj.is_provider ? "provider" : "class",
-              scope: "module",
-              isProvider: inj.is_provider || false,
-              fullName: injName
-            });
-            nodeSet.add(injName);
-          }
-          
-          // Add injection link
-          const existingInjLink = links.find(link => 
-            link.source === className && link.target === injName && link.type === "injects"
-          );
-          
-          if (!existingInjLink) {
-            links.push({
-              source: className,
-              target: injName,
-              type: "injects"
-            });
-          }
-        }
-      });
-    }
-  });
-
-  // Validate that all links have corresponding nodes
-  const nodeIds = new Set(nodes.map(node => node.id));
-  const validLinks = links.filter(link => {
-    const sourceExists = nodeIds.has(link.source);
-    const targetExists = nodeIds.has(link.target);
-    
-    if (!sourceExists) {
-      console.warn(`Link source node not found: ${link.source}`);
-    }
-    if (!targetExists) {
-      console.warn(`Link target node not found: ${link.target}`);
-    }
-    
-    return sourceExists && targetExists;
-  });
-
-  console.log(`Transformed ${classArray.length} base classes into ${nodes.length} nodes and ${validLinks.length} valid links`);
-  console.log('Transformed data:', { nodes, links: validLinks }); // Debug log
-  
-  return { nodes, links: validLinks };
-};
+    console.log('Transformed data:', { nodes, links }); // Debug log
+    return { nodes, links };
+  };
 
 /**
  * Calculate node levels for hierarchical layout
