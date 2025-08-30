@@ -1300,19 +1300,14 @@ const Visualizer = () => {
             </div>
           </div>
 
-          {/* Issues Section */}
-          <div>
-            <h3 className="text-gray-800 text-lg font-semibold mb-4 flex items-center gap-2">
-              ⚠️ Detected Issues
-            </h3>
-            <div className="space-y-3">
-              {issues.length === 0 ? (
-                <div className="bg-white border-l-4 border-blue-400 p-4 rounded-lg shadow-sm">
-                  <div className="font-semibold text-gray-800 text-sm mb-1">No issues detected</div>
-                  <div className="text-gray-600 text-xs leading-relaxed">Your dependency graph looks healthy!</div>
-                </div>
-              ) : (
-                issues.map((issue, index) => (
+          {/* Issues Section - Only show when there are issues */}
+          {issues.length > 0 && (
+            <div>
+              <h3 className="text-gray-800 text-lg font-semibold mb-4 flex items-center gap-2">
+                ⚠️ Detected Issues
+              </h3>
+              <div className="space-y-3">
+                {issues.map((issue, index) => (
                   <div
                     key={index}
                     className={`bg-white border-l-4 p-4 rounded-lg shadow-sm transition-transform hover:translate-x-1 ${
@@ -1326,10 +1321,10 @@ const Visualizer = () => {
                     <div className="font-semibold text-gray-800 text-sm mb-1">{issue.title}</div>
                     <div className="text-gray-600 text-xs leading-relaxed">{issue.description}</div>
                   </div>
-                ))
-              )}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Class Details Section */}
           {selectedNode && (
