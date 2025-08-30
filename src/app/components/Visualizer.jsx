@@ -459,9 +459,9 @@ const Visualizer = () => {
 
     console.log('Valid links after filtering:', validLinks.length, 'out of', projectData.links.length);
 
-    // Create arrow markers
+    // Create arrow markers with different colors for different relationship types
     svg.append("defs").selectAll("marker")
-      .data(["normal", "circular"])
+      .data(["normal", "circular", "extends", "depends", "provides", "injects"])
       .enter().append("marker")
       .attr("id", d => `arrow-${d}`)
       .attr("viewBox", "0 -5 10 10")
@@ -472,7 +472,45 @@ const Visualizer = () => {
       .attr("orient", "auto")
       .append("path")
       .attr("d", "M0,-5L10,0L0,5")
-      .attr("fill", d => d === "circular" ? "#ff6b6b" : "#999");
+      .attr("fill", d => {
+        switch(d) {
+          case "circular": return "#ff6b6b";
+          case "extends": return "#3b82f6"; // blue
+          case "depends": return "#10b981"; // green
+          case "provides": return "#8b5cf6"; // purple
+          case "injects": return "#f59e0b"; // orange
+          default: return "#999";
+        }
+      });
+
+    // Function to get link color based on type
+    const getLinkColor = (link) => {
+      const isCircular = circularPairs.some(pair => 
+        (pair[0] === link.source && pair[1] === link.target) ||
+        (pair[0] === link.target && pair[1] === link.source)
+      );
+      
+      if (isCircular) return "#ff6b6b";
+      
+      switch(link.type) {
+        case "extends": return "#3b82f6"; // blue
+        case "depends": return "#10b981"; // green
+        case "provides": return "#8b5cf6"; // purple
+        case "injects": return "#f59e0b"; // orange
+        default: return "#999";
+      }
+    };
+
+    // Function to get marker type based on link
+    const getMarkerType = (link) => {
+      const isCircular = circularPairs.some(pair => 
+        (pair[0] === link.source && pair[1] === link.target) ||
+        (pair[0] === link.target && pair[1] === link.source)
+      );
+      
+      if (isCircular) return "circular";
+      return link.type || "normal";
+    };
 
     // Create links
     const link = g.append("g")
@@ -480,28 +518,29 @@ const Visualizer = () => {
       .data(validLinks)
       .enter().append("path")
       .attr("fill", "none")
-      .attr("stroke", d => {
-        const isCircular = circularPairs.some(pair => 
-          (pair[0] === d.source && pair[1] === d.target) ||
-          (pair[0] === d.target && pair[1] === d.source)
-        );
-        return isCircular ? "#ff6b6b" : "#999";
-      })
+      .attr("stroke", getLinkColor)
       .attr("stroke-width", 2)
-      .attr("stroke-opacity", 0.4)
-      .attr("marker-end", d => {
-        const isCircular = circularPairs.some(pair => 
-          (pair[0] === d.source && pair[1] === d.target) ||
-          (pair[0] === d.target && pair[1] === d.source)
-        );
-        return `url(#arrow-${isCircular ? "circular" : "normal"})`;
-      })
+      .attr("stroke-opacity", 0.7)
+      .attr("marker-end", d => `url(#arrow-${getMarkerType(d)})`)
       .classed("circular", d => {
         return circularPairs.some(pair => 
           (pair[0] === d.source && pair[1] === d.target) ||
           (pair[0] === d.target && pair[1] === d.source)
         );
       });
+
+    // Add relationship labels on links
+    const linkLabels = g.append("g")
+      .selectAll("text")
+      .data(validLinks)
+      .enter().append("text")
+      .attr("text-anchor", "middle")
+      .attr("font-size", "10px")
+      .attr("font-weight", "500")
+      .attr("fill", "#555")
+      .attr("pointer-events", "none")
+      .style("user-select", "none")
+      .text(d => d.type || "");
 
     // Create nodes
     const node = g.append("g")
@@ -597,6 +636,10 @@ const Visualizer = () => {
         // Async function to handle the click
         (async () => {
           try {
+            // Set loading state for class info
+            setLoadingClassInfo(true);
+            setSelectedNode(d.id);
+            
             // Focus on this node's relationships and fetch class info
             await focusOnNode(d.id);
             await fetchClassInfo(d.id);
@@ -607,6 +650,9 @@ const Visualizer = () => {
               .style("stroke-width", node => node.id === d.id ? 4 : 2);
           } catch (error) {
             console.error('Error handling node click:', error);
+          } finally {
+            // Always clear loading state
+            setLoadingClassInfo(false);
           }
         })();
       });
@@ -665,6 +711,25 @@ const Visualizer = () => {
 
       simulationRef.current.on("tick", () => {
         link.attr("d", linkArc);
+        
+        // Position link labels at the midpoint of each link
+        linkLabels.attr("x", d => {
+          const sourceNode = visibleNodes.find(n => n.id === (d.source?.id || d.source));
+          const targetNode = visibleNodes.find(n => n.id === (d.target?.id || d.target));
+          if (sourceNode && targetNode) {
+            return (sourceNode.x + targetNode.x) / 2;
+          }
+          return 0;
+        })
+        .attr("y", d => {
+          const sourceNode = visibleNodes.find(n => n.id === (d.source?.id || d.source));
+          const targetNode = visibleNodes.find(n => n.id === (d.target?.id || d.target));
+          if (sourceNode && targetNode) {
+            return (sourceNode.y + targetNode.y) / 2 - 5; // Offset slightly above the line
+          }
+          return 0;
+        });
+        
         node.attr("transform", d => `translate(${d.x},${d.y})`);
       });
     } else {
@@ -700,6 +765,24 @@ const Visualizer = () => {
       
       node.attr("transform", d => `translate(${d.x},${d.y})`);
       link.attr("d", linkArc);
+      
+      // Position link labels for static layouts
+      linkLabels.attr("x", d => {
+        const sourceNode = visibleNodes.find(n => n.id === (d.source?.id || d.source));
+        const targetNode = visibleNodes.find(n => n.id === (d.target?.id || d.target));
+        if (sourceNode && targetNode) {
+          return (sourceNode.x + targetNode.x) / 2;
+        }
+        return 0;
+      })
+      .attr("y", d => {
+        const sourceNode = visibleNodes.find(n => n.id === (d.source?.id || d.source));
+        const targetNode = visibleNodes.find(n => n.id === (d.target?.id || d.target));
+        if (sourceNode && targetNode) {
+          return (sourceNode.y + targetNode.y) / 2 - 5;
+        }
+        return 0;
+      });
     }
 
     // Apply search filter
@@ -788,14 +871,30 @@ const Visualizer = () => {
 
   const fetchClassInfo = async (className) => {
     try {
+      // Safety check for className
+      if (!className || typeof className !== 'string') {
+        console.warn('Invalid className provided to fetchClassInfo:', className);
+        return;
+      }
+      
+      setIsExploring(true);
+      setClassInfo(null); // Clear previous class info
       await exploreClassRecursively(className, new Set(), new Map(), new Set());
     } catch (err) {
       console.error('Error exploring class hierarchy:', err);
       setError(`Failed to explore class hierarchy: ${err.message}`);
+    } finally {
+      setIsExploring(false);
     }
   };
 
   const exploreClassRecursively = async (className, visited, nodeMap, linkSet, depth = 0) => {
+    // Safety check for undefined or null className
+    if (!className || typeof className !== 'string') {
+      console.warn('Invalid className provided to exploreClassRecursively:', className);
+      return;
+    }
+    
     // Prevent infinite recursion and limit depth
     if (visited.has(className) || depth > 5) {
       return;
@@ -888,8 +987,10 @@ const Visualizer = () => {
               linkSet.add(linkKey);
             }
             
-            // Recursively explore parameter
-            await exploreClassRecursively(param.name, visited, nodeMap, linkSet, depth + 1);
+            // Recursively explore parameter (with safety check)
+            if (param.name && typeof param.name === 'string') {
+              await exploreClassRecursively(param.name, visited, nodeMap, linkSet, depth + 1);
+            }
           }
         }
       }
@@ -916,8 +1017,10 @@ const Visualizer = () => {
               linkSet.add(linkKey);
             }
             
-            // Recursively explore component
-            await exploreClassRecursively(component.name, visited, nodeMap, linkSet, depth + 1);
+            // Recursively explore component (with safety check)
+            if (component.name && typeof component.name === 'string') {
+              await exploreClassRecursively(component.name, visited, nodeMap, linkSet, depth + 1);
+            }
           }
         }
       }
@@ -944,8 +1047,10 @@ const Visualizer = () => {
               linkSet.add(linkKey);
             }
             
-            // Recursively explore injection
-            await exploreClassRecursively(injection.name, visited, nodeMap, linkSet, depth + 1);
+            // Recursively explore injection (with safety check)
+            if (injection.name && typeof injection.name === 'string') {
+              await exploreClassRecursively(injection.name, visited, nodeMap, linkSet, depth + 1);
+            }
           }
         }
       }
@@ -979,7 +1084,7 @@ const Visualizer = () => {
                 }
                 
                 // Recursively explore child (with increased depth to prevent too deep exploration)
-                if (depth < 3) {
+                if (depth < 3 && child.name && typeof child.name === 'string') {
                   await exploreClassRecursively(child.name, visited, nodeMap, linkSet, depth + 1);
                 }
               }
@@ -1351,6 +1456,23 @@ const Visualizer = () => {
         <div className="flex-1 bg-white/95 backdrop-blur-md rounded-2xl shadow-lg relative overflow-hidden">
           <svg ref={svgRef} className="w-full h-full"></svg>
           
+          {/* Loading overlay for class info */}
+          {loadingClassInfo && (
+            <div className="absolute inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-20">
+              <div className="bg-white rounded-lg p-8 shadow-xl flex flex-col items-center gap-4 max-w-sm">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                <div className="text-center">
+                  <div className="text-gray-800 font-semibold text-lg mb-1">
+                    Analyzing Class: {selectedNode}
+                  </div>
+                  <div className="text-gray-600 text-sm">
+                    {isExploring ? 'Exploring dependency hierarchy...' : 'Fetching class information and relationships...'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* Loading overlay for focusing */}
           {loadingFocus && (
             <div className="absolute inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-10">
@@ -1371,18 +1493,6 @@ const Visualizer = () => {
           <div className="absolute bottom-5 right-5 bg-white/95 p-4 rounded-lg shadow-md">
             <div className="space-y-2">
               <div className="flex items-center gap-3 text-sm">
-                <div className="w-5 h-5 rounded-full bg-indigo-500"></div>
-                <span>Module/Component</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-5 h-5 rounded-full bg-cyan-400"></div>
-                <span>Service</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-5 h-5 rounded-full bg-cyan-500"></div>
-                <span>Repository</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
                 <div className="w-5 h-5 rounded-full" style={{backgroundColor: "#ff9ff3"}}></div>
                 <span>Provider</span>
               </div>
@@ -1397,6 +1507,27 @@ const Visualizer = () => {
               <div className="flex items-center gap-3 text-sm">
                 <div className="w-5 h-5 rounded-full bg-red-400"></div>
                 <span>Circular Dependency</span>
+              </div>
+              <div className="mt-3 pt-2 border-t border-gray-200">
+                <div className="text-xs font-medium text-gray-600 mb-2">Relationships:</div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="w-4 h-0.5 bg-blue-500"></div>
+                    <span>extends</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="w-4 h-0.5 bg-green-500"></div>
+                    <span>depends</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="w-4 h-0.5 bg-purple-500"></div>
+                    <span>provides</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="w-4 h-0.5 bg-orange-500"></div>
+                    <span>injects</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
