@@ -54,21 +54,178 @@ const Visualizer = () => {
     avgDeps: 0
   });
   const [issues, setIssues] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [classInfo, setClassInfo] = useState(null);
+  const [loadingClassInfo, setLoadingClassInfo] = useState(false);
+  const [exploredNodes, setExploredNodes] = useState(new Set());
+  const [isExploring, setIsExploring] = useState(false);
+  const [previousState, setPreviousState] = useState(null);
+  const [focusedNode, setFocusedNode] = useState(null);
+  const [loadingFocus, setLoadingFocus] = useState(false);
   
   const simulationRef = useRef();
+
+  // Utility function to convert dot notation to slash notation
+  const convertDotToSlash = (name) => {
+    if (!name) return name;
+    return name.replace(/\./g, '/');
+  };
+
+  const focusOnNode = async (nodeId) => {
+    setLoadingFocus(true);
+    
+    try {
+      // Save current state for back functionality
+      setPreviousState({
+        nodes: [...projectData.nodes],
+        links: [...projectData.links],
+        focusedNode: focusedNode
+      });
+
+      // Find all nodes connected to the selected node
+      const connectedNodeIds = new Set([nodeId]);
+      const relevantLinks = [];
+
+      // Find all direct connections
+      projectData.links.forEach(link => {
+        const sourceId = link.source?.id || link.source;
+        const targetId = link.target?.id || link.target;
+
+        if (sourceId === nodeId) {
+          connectedNodeIds.add(targetId);
+          relevantLinks.push(link);
+        }
+        if (targetId === nodeId) {
+          connectedNodeIds.add(sourceId);
+          relevantLinks.push(link);
+        }
+      });
+
+      // Only include nodes that are actually connected to the selected node
+      const focusedNodes = projectData.nodes.filter(node => 
+        connectedNodeIds.has(node.id)
+      );
+
+      // Filter out self-referencing provider links
+      const filteredLinks = relevantLinks.filter(link => {
+        const sourceId = link.source?.id || link.source;
+        const targetId = link.target?.id || link.target;
+        
+        // Remove links where source and target are the same (self-referencing)
+        if (sourceId === targetId) {
+          console.log(`Filtering out self-referencing link: ${sourceId} -> ${targetId}`);
+          return false;
+        }
+        
+        return true;
+      });
+
+      // Clear previous data and set new focused data
+      setProjectData({
+        nodes: focusedNodes,
+        links: filteredLinks
+      });
+
+      setFocusedNode(nodeId);
+      
+      // Reset view after focusing
+      setTimeout(() => {
+        resetView();
+      }, 100);
+      
+    } finally {
+      setLoadingFocus(false);
+    }
+  };
+
+  const goBack = () => {
+    if (previousState) {
+      // Simply restore the previous nodes and links
+      setProjectData({
+        nodes: previousState.nodes,
+        links: previousState.links
+      });
+      setFocusedNode(previousState.focusedNode);
+      setPreviousState(null);
+      
+      // Reset view after state change
+      setTimeout(() => {
+        resetView();
+      }, 100);
+    }
+  };
+
+  const resetView = () => {
+    // Reset zoom and center the view
+    if (svgRef.current) {
+      const svg = d3.select(svgRef.current);
+      const container = svgRef.current.parentElement;
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      
+      // Get bounds of all nodes
+      if (projectData.nodes.length > 0) {
+        const bounds = {
+          minX: Math.min(...projectData.nodes.map(d => d.x || 0)),
+          maxX: Math.max(...projectData.nodes.map(d => d.x || 0)),
+          minY: Math.min(...projectData.nodes.map(d => d.y || 0)),
+          maxY: Math.max(...projectData.nodes.map(d => d.y || 0))
+        };
+        
+        const graphWidth = bounds.maxX - bounds.minX;
+        const graphHeight = bounds.maxY - bounds.minY;
+        
+        // Add padding
+        const padding = 50;
+        const scale = Math.min(
+          (width - padding * 2) / (graphWidth || width),
+          (height - padding * 2) / (graphHeight || height),
+          1 // Don't scale up beyond 1x
+        );
+        
+        const centerX = bounds.minX + graphWidth / 2;
+        const centerY = bounds.minY + graphHeight / 2;
+        
+        const translateX = width / 2 - centerX * scale;
+        const translateY = height / 2 - centerY * scale;
+        
+        svg.transition()
+          .duration(750)
+          .call(
+            d3.zoom().transform,
+            d3.zoomIdentity.translate(translateX, translateY).scale(scale)
+          );
+      } else {
+        // Fallback to center reset
+        svg.transition()
+          .duration(750)
+          .call(
+            d3.zoom().transform,
+            d3.zoomIdentity.translate(0, 0).scale(1)
+          );
+      }
+    }
+  };
 
   const getNodeColor = useCallback((node) => {
     const colors = {
       module: "#667eea",
       service: "#48dbfb",
       repository: "#00d2d3",
-      singleton: "#feca57"
+      singleton: "#feca57",
+      provider: "#ff9ff3",
+      class: "#95a5a6"
     };
     
+    if (node.isProvider) {
+      return colors.provider;
+    }
     if (node.scope === "singleton" && node.type === "service") {
       return colors.singleton;
     }
-    return colors[node.type] || "#667eea";
+    return colors[node.type] || colors.class;
   }, []);
 
   const detectCircularDependencies = useCallback(() => {
@@ -78,8 +235,8 @@ const Visualizer = () => {
     });
     
     projectData.links.forEach(link => {
-      const source = link.source.id || link.source;
-      const target = link.target.id || link.target;
+      const source = link.source?.id || link.source;
+      const target = link.target?.id || link.target;
       if (graph[source]) {
         graph[source].push(target);
       }
@@ -134,35 +291,48 @@ const Visualizer = () => {
       levels[nodeId] = Math.max(levels[nodeId] || 0, level);
       
       projectData.links
-        .filter(link => link.source === nodeId || link.source.id === nodeId)
+        .filter(link => link.source === nodeId || link.source?.id === nodeId)
         .forEach(link => {
-          const targetId = link.target.id || link.target;
+          const targetId = link.target?.id || link.target;
           dfs(targetId, level + 1);
         });
     }
     
     projectData.nodes
       .filter(node => !projectData.links.some(link => 
-        link.target === node.id || link.target.id === node.id))
+        link.target === node.id || link.target?.id === node.id))
       .forEach(node => dfs(node.id, 0));
     
     return levels;
   }, [projectData]);
 
   const updateStatistics = useCallback(() => {
+    // Filter out isolated nodes for statistics when not in focused view
+    const connectedNodeIds = new Set();
+    projectData.links.forEach(link => {
+      const sourceId = link.source?.id || link.source;
+      const targetId = link.target?.id || link.target;
+      connectedNodeIds.add(sourceId);
+      connectedNodeIds.add(targetId);
+    });
+
+    const visibleNodes = focusedNode ? 
+      projectData.nodes : 
+      projectData.nodes.filter(node => connectedNodeIds.has(node.id));
+
     const circularDeps = detectCircularDependencies();
     const depths = calculateNodeLevels();
     const maxDepth = Math.max(...Object.values(depths), 0);
-    const avgDeps = projectData.links.length / projectData.nodes.length;
+    const avgDeps = projectData.links.length / visibleNodes.length;
     
     setStatistics({
-      totalModules: projectData.nodes.length,
+      totalModules: visibleNodes.length,
       totalDependencies: projectData.links.length,
       circularDeps: circularDeps.length,
       maxDepth: maxDepth,
       avgDeps: parseFloat(avgDeps.toFixed(2))
     });
-  }, [projectData, detectCircularDependencies, calculateNodeLevels]);
+  }, [projectData, detectCircularDependencies, calculateNodeLevels, focusedNode]);
 
   const detectIssues = useCallback(() => {
     const detectedIssues = [];
@@ -189,7 +359,7 @@ const Visualizer = () => {
     // Check for god objects (too many dependencies)
     projectData.nodes.forEach(node => {
       const deps = projectData.links.filter(l => 
-        l.source === node.id || l.source.id === node.id
+        l.source === node.id || l.source?.id === node.id
       ).length;
       
       if (deps > 5) {
@@ -201,26 +371,28 @@ const Visualizer = () => {
       }
     });
     
-    // Check for unused modules
-    projectData.nodes.forEach(node => {
-      const isUsed = projectData.links.some(l => 
-        l.target === node.id || l.target.id === node.id
-      );
-      const hasOutputs = projectData.links.some(l => 
-        l.source === node.id || l.source.id === node.id
-      );
-      
-      if (!isUsed && !hasOutputs && node.id !== 'AppModule') {
-        detectedIssues.push({
-          type: 'info',
-          title: 'Isolated Component',
-          description: `${node.id} appears to be isolated from the dependency graph`
-        });
-      }
-    });
+    // Only check for isolated modules when NOT in focused view
+    if (!focusedNode) {
+      projectData.nodes.forEach(node => {
+        const isUsed = projectData.links.some(l => 
+          l.target === node.id || l.target?.id === node.id
+        );
+        const hasOutputs = projectData.links.some(l => 
+          l.source === node.id || l.source?.id === node.id
+        );
+        
+        if (!isUsed && !hasOutputs && node.id !== 'AppModule') {
+          detectedIssues.push({
+            type: 'info',
+            title: 'Isolated Component',
+            description: `${node.id} appears to be isolated from the dependency graph`
+          });
+        }
+      });
+    }
     
     setIssues(detectedIssues);
-  }, [projectData, detectCircularDependencies]);
+  }, [projectData, detectCircularDependencies, focusedNode]);
 
   const renderGraph = useCallback(() => {
     if (!svgRef.current) return;
@@ -236,6 +408,22 @@ const Visualizer = () => {
     const g = svg.append("g");
     const tooltip = d3.select(tooltipRef.current);
 
+    // Filter out isolated nodes (nodes with no connections)
+    const connectedNodeIds = new Set();
+    projectData.links.forEach(link => {
+      const sourceId = link.source?.id || link.source;
+      const targetId = link.target?.id || link.target;
+      connectedNodeIds.add(sourceId);
+      connectedNodeIds.add(targetId);
+    });
+
+    // Only show connected nodes unless in focused view (where we want to show the selected relationships)
+    const visibleNodes = focusedNode ? 
+      projectData.nodes : 
+      projectData.nodes.filter(node => connectedNodeIds.has(node.id));
+
+    console.log(`Showing ${visibleNodes.length} out of ${projectData.nodes.length} nodes`);
+
     // Add zoom behavior
     const zoom = d3.zoom()
       .scaleExtent([0.1, 4])
@@ -247,6 +435,29 @@ const Visualizer = () => {
 
     // Detect circular dependencies
     const circularPairs = detectCircularDependencies();
+
+    // Filter out any links that reference non-existent nodes
+    const nodeIds = new Set(projectData.nodes.map(n => n.id));
+    const validLinks = projectData.links.filter(link => {
+      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+      
+      const sourceExists = nodeIds.has(sourceId);
+      const targetExists = nodeIds.has(targetId);
+      
+      if (!sourceExists || !targetExists) {
+        console.warn('Filtering out invalid link:', { 
+          source: sourceId, 
+          target: targetId, 
+          sourceExists, 
+          targetExists 
+        });
+        return false;
+      }
+      return true;
+    });
+
+    console.log('Valid links after filtering:', validLinks.length, 'out of', projectData.links.length);
 
     // Create arrow markers
     svg.append("defs").selectAll("marker")
@@ -266,7 +477,7 @@ const Visualizer = () => {
     // Create links
     const link = g.append("g")
       .selectAll("path")
-      .data(projectData.links)
+      .data(validLinks)
       .enter().append("path")
       .attr("fill", "none")
       .attr("stroke", d => {
@@ -295,7 +506,7 @@ const Visualizer = () => {
     // Create nodes
     const node = g.append("g")
       .selectAll("g")
-      .data(projectData.nodes)
+      .data(visibleNodes)
       .enter().append("g")
       .attr("class", "node")
       .style("cursor", "pointer");
@@ -307,54 +518,97 @@ const Visualizer = () => {
       .attr("stroke", "#fff")
       .attr("stroke-width", 2)
       .on("mouseover", function(event, d) {
-        const dependencies = projectData.links
-          .filter(link => link.source === d.id || link.source.id === d.id)
-          .map(link => link.target.id || link.target);
+        // Highlight connected nodes and links
+        const connectedNodes = new Set([d.id]);
+        const connectedLinks = new Set();
         
-        const dependents = projectData.links
-          .filter(link => link.target === d.id || link.target.id === d.id)
-          .map(link => link.source.id || link.source);
+        validLinks.forEach(link => {
+          const sourceId = link.source?.id || link.source;
+          const targetId = link.target?.id || link.target;
+          
+          if (sourceId === d.id) {
+            connectedNodes.add(targetId);
+            connectedLinks.add(link);
+          }
+          if (targetId === d.id) {
+            connectedNodes.add(sourceId);
+            connectedLinks.add(link);
+          }
+        });
+        
+        // Highlight connected nodes
+        d3.selectAll(".node circle")
+          .style("opacity", node => connectedNodes.has(node.id) ? 1 : 0.3)
+          .style("stroke-width", node => connectedNodes.has(node.id) ? 3 : 2);
+        
+        // Highlight connected links
+        d3.selectAll("path")
+          .style("opacity", link => {
+            const sourceId = link.source?.id || link.source;
+            const targetId = link.target?.id || link.target;
+            return (sourceId === d.id || targetId === d.id) ? 1 : 0.1;
+          })
+          .style("stroke-width", link => {
+            const sourceId = link.source?.id || link.source;
+            const targetId = link.target?.id || link.target;
+            return (sourceId === d.id || targetId === d.id) ? 3 : 2;
+          });
+
+        // Show tooltip with dependency info
+        const dependencies = validLinks
+          .filter(link => link.source === d.id || link.source?.id === d.id)
+          .map(link => link.target?.id || link.target);
+        
+        const dependents = validLinks
+          .filter(link => link.target === d.id || link.target?.id === d.id)
+          .map(link => link.source?.id || link.source);
         
         tooltip.html(`
           <div class="font-semibold">${d.id}</div>
           <div>Type: ${d.type}</div>
           <div>Scope: ${d.scope}</div>
-          <div>Dependencies: ${dependencies.length > 0 ? dependencies.join(", ") : "None"}</div>
-          <div>Dependents: ${dependents.length > 0 ? dependents.join(", ") : "None"}</div>
+          <div class="mt-2">
+            <div class="text-green-300">Dependencies (${dependencies.length}):</div>
+            <div class="text-xs">${dependencies.length > 0 ? dependencies.join(", ") : "None"}</div>
+          </div>
+          <div class="mt-1">
+            <div class="text-blue-300">Dependents (${dependents.length}):</div>
+            <div class="text-xs">${dependents.length > 0 ? dependents.join(", ") : "None"}</div>
+          </div>
+          <div class="mt-2 text-yellow-300 text-xs">Click for detailed info</div>
         `)
         .style("left", (event.pageX + 10) + "px")
         .style("top", (event.pageY - 10) + "px")
         .style("opacity", 1);
       })
       .on("mouseout", function() {
+        // Reset all visual effects
+        d3.selectAll(".node circle")
+          .style("opacity", 1)
+          .style("stroke-width", 2);
+        
+        d3.selectAll("path")
+          .style("opacity", 0.4)
+          .style("stroke-width", 2);
+        
         tooltip.style("opacity", 0);
       })
       .on("click", function(event, d) {
-        const connectedNodes = new Set([d.id]);
-        
-        projectData.links.forEach(link => {
-          if (link.source === d.id || link.source.id === d.id) {
-            connectedNodes.add(link.target.id || link.target);
+        // Async function to handle the click
+        (async () => {
+          try {
+            // Focus on this node's relationships and fetch class info
+            await focusOnNode(d.id);
+            await fetchClassInfo(d.id);
+            
+            // Visual feedback for clicked node
+            d3.selectAll(".node circle")
+              .style("stroke", node => node.id === d.id ? "#ff6b6b" : "#fff")
+              .style("stroke-width", node => node.id === d.id ? 4 : 2);
+          } catch (error) {
+            console.error('Error handling node click:', error);
           }
-          if (link.target === d.id || link.target.id === d.id) {
-            connectedNodes.add(link.source.id || link.source);
-          }
-        });
-        
-        d3.selectAll("circle")
-          .style("opacity", node => connectedNodes.has(node.id) ? 1 : 0.3);
-        
-        d3.selectAll("path")
-          .style("opacity", link => {
-            const sourceId = link.source.id || link.source;
-            const targetId = link.target.id || link.target;
-            return (sourceId === d.id || targetId === d.id) ? 1 : 0.1;
-          });
-        
-        setTimeout(() => {
-          d3.selectAll("circle").style("opacity", 1);
-          d3.selectAll("path").style("opacity", 0.4);
-        }, 3000);
+        })();
       });
 
     // Add labels
@@ -369,8 +623,8 @@ const Visualizer = () => {
       .style("user-select", "none");
 
     const linkArc = (d) => {
-      const sourceNode = projectData.nodes.find(n => n.id === d.source.id || n.id === d.source);
-      const targetNode = projectData.nodes.find(n => n.id === d.target.id || n.id === d.target);
+      const sourceNode = projectData.nodes.find(n => n.id === (d.source?.id || d.source));
+      const targetNode = projectData.nodes.find(n => n.id === (d.target?.id || d.target));
       
       if (!sourceNode || !targetNode) return "";
       
@@ -383,8 +637,8 @@ const Visualizer = () => {
 
     // Setup simulation based on layout
     if (currentLayout === 'force') {
-      simulationRef.current = d3.forceSimulation(projectData.nodes)
-        .force("link", d3.forceLink(projectData.links)
+      simulationRef.current = d3.forceSimulation(visibleNodes)
+        .force("link", d3.forceLink(validLinks)
           .id(d => d.id)
           .distance(100))
         .force("charge", d3.forceManyBody().strength(-300))
@@ -417,9 +671,9 @@ const Visualizer = () => {
       // Apply static layouts
       if (currentLayout === 'circular') {
         const radius = Math.min(width, height) / 2 - 100;
-        const angleStep = (2 * Math.PI) / projectData.nodes.length;
+        const angleStep = (2 * Math.PI) / visibleNodes.length;
         
-        projectData.nodes.forEach((node, i) => {
+        visibleNodes.forEach((node, i) => {
           node.x = width / 2 + radius * Math.cos(i * angleStep - Math.PI / 2);
           node.y = height / 2 + radius * Math.sin(i * angleStep - Math.PI / 2);
         });
@@ -429,7 +683,7 @@ const Visualizer = () => {
         const levelHeight = height / (maxLevel + 2);
         const nodesPerLevel = {};
         
-        projectData.nodes.forEach(node => {
+        visibleNodes.forEach(node => {
           const level = levels[node.id] || 0;
           if (!nodesPerLevel[level]) nodesPerLevel[level] = [];
           nodesPerLevel[level].push(node);
@@ -461,34 +715,308 @@ const Visualizer = () => {
         );
     }
 
-  }, [projectData, currentLayout, searchTerm, detectCircularDependencies, calculateNodeLevels, getNodeColor]);
+  }, [projectData, currentLayout, searchTerm, detectCircularDependencies, calculateNodeLevels, getNodeColor, focusedNode]);
 
-  const analyzeProject = () => {
-    const newNodes = [
-      { id: "ViewModule", type: "module", scope: "singleton" },
-      { id: "RouterService", type: "service", scope: "singleton" },
-      { id: "StateManager", type: "service", scope: "singleton" }
-    ];
+  const analyzeProject = async () => {
+    setLoading(true);
+    setError(null);
     
-    const newLinks = [
-      { source: "ViewModule", target: "RouterService", type: "provides" },
-      { source: "RouterService", target: "StateManager", type: "inject" },
-      { source: "StateManager", target: "CacheManager", type: "inject" },
-      { source: "ViewModule", target: "AuthService", type: "inject" }
-    ];
+    // Reset focus state when loading new data
+    setPreviousState(null);
+    setFocusedNode(null);
     
-    setProjectData(prev => ({
-      nodes: [...prev.nodes, ...newNodes],
-      links: [...prev.links, ...newLinks]
-    }));
+    try {
+      const response = await fetch('/api/base-classes');
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      const transformedData = transformBaseClasses(data);
+
+      setProjectData(transformedData);
+      
+      // Reset view after loading new data with longer delay for force simulation
+      setTimeout(() => {
+        resetView();
+      }, 1000);
+      
+    } catch (err) {
+      console.error('Error fetching base classes:', err);
+      setError(`Failed to fetch data: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const transformBaseClasses = (apiData) => {
+    console.log('API Response:', apiData);
+    
+    let nodes = [];
+    let links = [];
+    
+
+    if (apiData.base_classes) {
+      nodes = apiData.base_classes.map(cls => ({
+        id: convertDotToSlash(cls.name),
+        type: cls.type || "class",
+        scope: cls.scope || "module",
+        isProvider: cls.is_provider || false,
+        fullName: convertDotToSlash(cls.name),
+        ...cls
+      }));
+
+      nodes.push({
+        id: "Object",
+        type: "class",
+        scope: "module",
+        isProvider: false
+      });
+
+      links = apiData.base_classes.map(rel => ({
+        source: convertDotToSlash(rel.name),
+        target: "Object",
+        type: "dependency"
+      }));
+    }
+    
+    console.log('Transformed data:', { nodes, links }); // Debug log
+    return { nodes, links };
+  };
+
+  const fetchClassInfo = async (className) => {
+    try {
+      await exploreClassRecursively(className, new Set(), new Map(), new Set());
+    } catch (err) {
+      console.error('Error exploring class hierarchy:', err);
+      setError(`Failed to explore class hierarchy: ${err.message}`);
+    }
+  };
+
+  const exploreClassRecursively = async (className, visited, nodeMap, linkSet, depth = 0) => {
+    // Prevent infinite recursion and limit depth
+    if (visited.has(className) || depth > 5) {
+      return;
+    }
+    
+    visited.add(className);
+    console.log(`Exploring ${className} at depth ${depth}`);
+    
+    // Initialize with current project data on first call (depth 0)
+    if (depth === 0) {
+      // Add existing nodes to nodeMap
+      projectData.nodes.forEach(node => {
+        nodeMap.set(node.id, node);
+      });
+      
+      // Add existing links to linkSet
+      projectData.links.forEach(link => {
+        const linkKey = `${link.source}|||${link.type}|||${link.target}`;
+        linkSet.add(linkKey);
+      });
+    }
+    
+    try {
+      // Fetch class info - convert dot notation to slash notation for API call
+      const apiClassName = className.replace(/\./g, '/');
+      const classResponse = await fetch(`/api/class-info/${encodeURIComponent(apiClassName)}`);
+      if (!classResponse.ok) {
+        console.warn(`Failed to fetch class info for ${className}`);
+        return;
+      }
+      
+      const classData = await classResponse.json();
+      
+      const currentNodeName = convertDotToSlash(classData.name);
+      
+      // Add current node
+      if (!nodeMap.has(currentNodeName)) {
+        nodeMap.set(currentNodeName, {
+          id: currentNodeName,
+          type: classData.is_provider ? "provider" : "class",
+          scope: "module",
+          isProvider: classData.is_provider,
+          fullName: convertDotToSlash(classData.name),
+          classData: classData
+        });
+      }
+      
+      // Add parent class relationship
+      if (classData.parent_class && classData.parent_class !== "java.lang.Object") {
+        const parentNodeName = convertDotToSlash(classData.parent_class);
+        
+        // Only add if parent is different from current node
+        if (parentNodeName !== currentNodeName) {
+          if (!nodeMap.has(parentNodeName)) {
+            nodeMap.set(parentNodeName, {
+              id: parentNodeName,
+              type: "class",
+              scope: "module",
+              isProvider: false,
+              fullName: convertDotToSlash(classData.parent_class)
+            });
+          }
+          
+          const linkKey = `${currentNodeName}|||extends|||${parentNodeName}`;
+          if (!linkSet.has(linkKey)) {
+            linkSet.add(linkKey);
+          }
+        }
+      }
+      
+      // Process parameters (dependencies)
+      if (classData.parameters && classData.parameters.length > 0) {
+        for (const param of classData.parameters) {
+          const paramNodeName = convertDotToSlash(param.name);
+          
+          // Only add if parameter is different from current node
+          if (paramNodeName !== currentNodeName) {
+            if (!nodeMap.has(paramNodeName)) {
+              nodeMap.set(paramNodeName, {
+                id: paramNodeName,
+                type: param.is_provider ? "provider" : "class",
+                scope: "module",
+                isProvider: param.is_provider,
+                fullName: convertDotToSlash(param.name)
+              });
+            }
+            
+            const linkKey = `${currentNodeName}|||depends|||${paramNodeName}`;
+            if (!linkSet.has(linkKey)) {
+              linkSet.add(linkKey);
+            }
+            
+            // Recursively explore parameter
+            await exploreClassRecursively(param.name, visited, nodeMap, linkSet, depth + 1);
+          }
+        }
+      }
+      
+      // Process components
+      if (classData.components && classData.components.length > 0) {
+        for (const component of classData.components) {
+          const compNodeName = convertDotToSlash(component.name);
+          
+          // Only add if component is different from current node
+          if (compNodeName !== currentNodeName) {
+            if (!nodeMap.has(compNodeName)) {
+              nodeMap.set(compNodeName, {
+                id: compNodeName,
+                type: component.is_provider ? "provider" : "class",
+                scope: "module",
+                isProvider: component.is_provider,
+                fullName: convertDotToSlash(component.name)
+              });
+            }
+            
+            const linkKey = `${currentNodeName}|||provides|||${compNodeName}`;
+            if (!linkSet.has(linkKey)) {
+              linkSet.add(linkKey);
+            }
+            
+            // Recursively explore component
+            await exploreClassRecursively(component.name, visited, nodeMap, linkSet, depth + 1);
+          }
+        }
+      }
+      
+      // Process injections
+      if (classData.injections && classData.injections.length > 0) {
+        for (const injection of classData.injections) {
+          const injNodeName = convertDotToSlash(injection.name);
+          
+          // Only add if injection is different from current node
+          if (injNodeName !== currentNodeName) {
+            if (!nodeMap.has(injNodeName)) {
+              nodeMap.set(injNodeName, {
+                id: injNodeName,
+                type: injection.is_provider ? "provider" : "class",
+                scope: "module",
+                isProvider: injection.is_provider,
+                fullName: convertDotToSlash(injection.name)
+              });
+            }
+            
+            const linkKey = `${currentNodeName}|||injects|||${injNodeName}`;
+            if (!linkSet.has(linkKey)) {
+              linkSet.add(linkKey);
+            }
+            
+            // Recursively explore injection
+            await exploreClassRecursively(injection.name, visited, nodeMap, linkSet, depth + 1);
+          }
+        }
+      }
+      
+      // Try to fetch child classes for additional relationships
+      try {
+        const apiChildClassName = className.replace(/\./g, '/');
+        const childResponse = await fetch(`/api/child-classes/${encodeURIComponent(apiChildClassName)}`);
+        if (childResponse.ok) {
+          const childData = await childResponse.json();
+          
+          if (childData.child_classes && childData.child_classes.length > 0) {
+            for (const child of childData.child_classes) {
+              const childNodeName = convertDotToSlash(child.name);
+              
+              // Only add if child is different from current node
+              if (childNodeName !== currentNodeName) {
+                if (!nodeMap.has(childNodeName)) {
+                  nodeMap.set(childNodeName, {
+                    id: childNodeName,
+                    type: child.is_provider ? "provider" : "class",
+                    scope: "module",
+                    isProvider: child.is_provider,
+                    fullName: convertDotToSlash(child.name)
+                  });
+                }
+                
+                const linkKey = `${childNodeName}|||extends|||${currentNodeName}`;
+                if (!linkSet.has(linkKey)) {
+                  linkSet.add(linkKey);
+                }
+                
+                // Recursively explore child (with increased depth to prevent too deep exploration)
+                if (depth < 3) {
+                  await exploreClassRecursively(child.name, visited, nodeMap, linkSet, depth + 1);
+                }
+              }
+            }
+          }
+        }
+      } catch (childErr) {
+        console.warn(`Failed to fetch child classes for ${className}:`, childErr);
+      }
+      
+      // Update the project data with accumulated nodes and links only on root call
+      if (depth === 0) {
+        const newNodes = Array.from(nodeMap.values());
+        const newLinks = Array.from(linkSet).map(linkKey => {
+          const [source, type, target] = linkKey.split('|||');
+          return { source, target, type };
+        });
+        
+        console.log('Final explored data:', { nodes: newNodes, links: newLinks });
+        
+        setProjectData({ nodes: newNodes, links: newLinks });
+        setClassInfo(classData);
+        setSelectedNode(convertDotToSlash(classData.name));
+        setExploredNodes(visited);
+      }
+      
+    } catch (err) {
+      console.error(`Error processing ${className}:`, err);
+    }
   };
 
   const exportGraph = () => {
     const graphData = {
       nodes: projectData.nodes,
       links: projectData.links.map(link => ({
-        source: link.source.id || link.source,
-        target: link.target.id || link.target,
+        source: link.source?.id || link.source,
+        target: link.target?.id || link.target,
         type: link.type
       })),
       metadata: {
@@ -517,6 +1045,11 @@ const Visualizer = () => {
     detectIssues();
   }, [detectIssues]);
 
+  // Auto-load base classes on component mount
+  useEffect(() => {
+    analyzeProject();
+  }, []); // Empty dependency array means this runs once on mount
+
   // Handle window resize
   useEffect(() => {
     const handleResize = () => {
@@ -544,9 +1077,45 @@ const Visualizer = () => {
           <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">
             K
           </div>
-          <h1 className="text-2xl font-semibold text-gray-800">Knit Dependency Visualizer</h1>
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-800">Knit Dependency Visualizer</h1>
+            {focusedNode && (
+              <p className="text-sm text-gray-600 mt-1">
+                Focused on: <span className="font-medium text-indigo-600">{focusedNode}</span>
+              </p>
+            )}
+          </div>
         </div>
         <div className="flex gap-4 items-center">
+          {previousState && (
+            <button
+              onClick={goBack}
+              className="bg-gradient-to-r from-gray-500 to-gray-600 text-white px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 flex items-center gap-2"
+            >
+              ← Back to Full View
+            </button>
+          )}
+          {focusedNode && !previousState && (
+            <button
+              onClick={() => {
+                setFocusedNode(null);
+                setSelectedNode(null);
+                setClassInfo(null);
+                setExploredNodes(new Set());
+                // Reset visual selection
+                d3.selectAll(".node circle")
+                  .style("stroke", "#fff")
+                  .style("stroke-width", 2);
+                // Reset view
+                setTimeout(() => {
+                  resetView();
+                }, 100);
+              }}
+              className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 flex items-center gap-2"
+            >
+              Clear Focus
+            </button>
+          )}
           <select 
             value={currentLayout}
             onChange={(e) => setCurrentLayout(e.target.value)}
@@ -558,9 +1127,12 @@ const Visualizer = () => {
           </select>
           <button
             onClick={analyzeProject}
-            className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5"
+            disabled={loading}
+            className={`bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 ${
+              loading ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
           >
-            Load Sample Project
+            {loading ? 'Loading Base Classes...' : 'Load Base Classes'}
           </button>
           <button
             onClick={() => detectIssues()}
@@ -576,6 +1148,20 @@ const Visualizer = () => {
           </button>
         </div>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="mx-5 mb-5 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
+          <span className="text-red-500">⚠️</span>
+          <span>{error}</span>
+          <button 
+            onClick={() => setError(null)}
+            className="ml-auto text-red-500 hover:text-red-700"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="flex flex-1 gap-5 p-5 max-w-7xl w-full mx-auto">
@@ -648,11 +1234,132 @@ const Visualizer = () => {
               )}
             </div>
           </div>
+
+          {/* Class Details Section */}
+          {selectedNode && (
+            <div className="mt-6">
+              <h3 className="text-gray-800 text-lg font-semibold mb-4 flex items-center gap-2">
+                🔍 Class Details: {selectedNode}
+              </h3>
+              
+              {loadingClassInfo ? (
+                <div className="bg-white border-l-4 border-blue-400 p-4 rounded-lg shadow-sm">
+                  <div className="font-semibold text-gray-800 text-sm mb-1">
+                    {isExploring ? 'Exploring Dependencies...' : 'Loading...'}
+                  </div>
+                  <div className="text-gray-600 text-xs">
+                    {isExploring ? 'Recursively fetching class hierarchy and relationships...' : 'Fetching detailed class information...'}
+                  </div>
+                </div>
+              ) : classInfo ? (
+                <div className="bg-white border-l-4 border-green-400 p-4 rounded-lg shadow-sm">
+                  <div className="space-y-2">
+                    <div className="font-semibold text-gray-800 text-sm">{convertDotToSlash(classInfo.name)}</div>
+                    
+                    <div className="text-gray-600 text-xs">
+                      <div className="mb-2">
+                        <span className="font-medium">Parent Class:</span> {convertDotToSlash(classInfo.parent_class)}
+                      </div>
+                      <div className="mb-2">
+                        <span className="font-medium">Is Provider:</span> {classInfo.is_provider ? 'Yes' : 'No'}
+                      </div>
+                      {classInfo.provider_class && (
+                        <div className="mb-2">
+                          <span className="font-medium">Provider Class:</span> {convertDotToSlash(classInfo.provider_class)}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {classInfo.parameters && classInfo.parameters.length > 0 && (
+                      <div>
+                        <div className="font-medium text-gray-700 text-xs mt-3 mb-1">Parameters ({classInfo.parameters.length}):</div>
+                        <div className="text-gray-600 text-xs space-y-1">
+                          {classInfo.parameters.map((param, idx) => (
+                            <div key={idx} className="bg-gray-50 px-2 py-1 rounded text-xs flex justify-between">
+                              <span>{convertDotToSlash(param.name)}</span>
+                              {param.is_provider && <span className="text-purple-600 font-medium">Provider</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {classInfo.components && classInfo.components.length > 0 && (
+                      <div>
+                        <div className="font-medium text-gray-700 text-xs mt-3 mb-1">Components ({classInfo.components.length}):</div>
+                        <div className="text-gray-600 text-xs space-y-1">
+                          {classInfo.components.map((comp, idx) => (
+                            <div key={idx} className="bg-gray-50 px-2 py-1 rounded text-xs flex justify-between">
+                              <span>{convertDotToSlash(comp.name)}</span>
+                              {comp.is_provider && <span className="text-purple-600 font-medium">Provider</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {classInfo.injections && classInfo.injections.length > 0 && (
+                      <div>
+                        <div className="font-medium text-gray-700 text-xs mt-3 mb-1">Injections ({classInfo.injections.length}):</div>
+                        <div className="text-gray-600 text-xs space-y-1">
+                          {classInfo.injections.map((inj, idx) => (
+                            <div key={idx} className="bg-gray-50 px-2 py-1 rounded text-xs flex justify-between">
+                              <span>{convertDotToSlash(inj.name)}</span>
+                              {inj.is_provider && <span className="text-purple-600 font-medium">Provider</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {exploredNodes.size > 1 && (
+                      <div className="mt-3 p-2 bg-blue-50 rounded">
+                        <div className="font-medium text-blue-700 text-xs">Exploration Summary:</div>
+                        <div className="text-blue-600 text-xs">
+                          Explored {exploredNodes.size} classes in the dependency tree
+                        </div>
+                      </div>
+                    )}
+                    
+                    <button 
+                      onClick={() => {
+                        setSelectedNode(null);
+                        setClassInfo(null);
+                        setExploredNodes(new Set());
+                        // Reset visual selection
+                        d3.selectAll(".node circle")
+                          .style("stroke", "#fff")
+                          .style("stroke-width", 2);
+                      }}
+                      className="mt-3 text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded transition-colors"
+                    >
+                      Close Details
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-white border-l-4 border-red-400 p-4 rounded-lg shadow-sm">
+                  <div className="font-semibold text-gray-800 text-sm mb-1">Failed to load</div>
+                  <div className="text-gray-600 text-xs">Could not fetch class information</div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Visualization Container */}
         <div className="flex-1 bg-white/95 backdrop-blur-md rounded-2xl shadow-lg relative overflow-hidden">
           <svg ref={svgRef} className="w-full h-full"></svg>
+          
+          {/* Loading overlay for focusing */}
+          {loadingFocus && (
+            <div className="absolute inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-10">
+              <div className="bg-white rounded-lg p-6 shadow-lg flex items-center gap-3">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+                <span className="text-gray-700 font-medium">Loading node details...</span>
+              </div>
+            </div>
+          )}
           
           {/* Tooltip */}
           <div 
@@ -674,6 +1381,14 @@ const Visualizer = () => {
               <div className="flex items-center gap-3 text-sm">
                 <div className="w-5 h-5 rounded-full bg-cyan-500"></div>
                 <span>Repository</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm">
+                <div className="w-5 h-5 rounded-full" style={{backgroundColor: "#ff9ff3"}}></div>
+                <span>Provider</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm">
+                <div className="w-5 h-5 rounded-full" style={{backgroundColor: "#95a5a6"}}></div>
+                <span>Class</span>
               </div>
               <div className="flex items-center gap-3 text-sm">
                 <div className="w-5 h-5 rounded-full bg-yellow-400"></div>
