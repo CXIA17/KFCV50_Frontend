@@ -1231,15 +1231,6 @@ const Visualizer = () => {
             <option value="hierarchical">Hierarchical Layout</option>
           </select>
           <button
-            onClick={analyzeProject}
-            disabled={loading}
-            className={`bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 ${
-              loading ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
-          >
-            {loading ? 'Loading Base Classes...' : 'Load Base Classes'}
-          </button>
-          <button
             onClick={() => detectIssues()}
             className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-5 py-2 rounded-lg font-medium transition-all hover:shadow-lg hover:-translate-y-0.5"
           >
