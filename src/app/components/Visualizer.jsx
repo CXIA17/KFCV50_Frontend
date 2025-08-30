@@ -74,7 +74,6 @@ const Visualizer = () => {
 
   // Local state
   const [currentLayout, setCurrentLayout] = useState('force');
-  const [searchTerm, setSearchTerm] = useState('');
   const [hidePreviewSteps, setHidePreviewSteps] = useState(true); // Toggle for hiding previous steps
 
   // Focus function with exact original behavior
@@ -274,13 +273,11 @@ const Visualizer = () => {
       .style("user-select", "none")
       .text(d => d.type || "");
 
-    // Create nodes
-    const node = g.append("g")
-      .selectAll("g")
+    // Create nodes within the zoom container
+    const node = g.selectAll(".node")
       .data(visibleNodes)
       .enter().append("g")
-      .attr("class", "node")
-      .style("cursor", "pointer");
+      .attr("class", "node");
 
     // Add circles for nodes
     node.append("circle")
@@ -346,6 +343,54 @@ const Visualizer = () => {
 
     // Link arc function for curved links
     const linkArc = (d) => createLinkArc(d, visibleNodes);
+
+    // Enhanced drag behavior that works with all layout types
+    const dragBehavior = d3.drag()
+      .on("start", function(event, d) {
+        // For force layouts, restart simulation
+        if (currentLayout === 'force' && simulationRef.current) {
+          if (!event.active) {
+            simulationRef.current.alphaTarget(0.3).restart();
+          }
+          d.fx = d.x;
+          d.fy = d.y;
+        }
+        // Change cursor during drag
+        d3.select(this).style("cursor", "grabbing");
+      })
+      .on("drag", function(event, d) {
+        // Update position
+        d.x = event.x;
+        d.y = event.y;
+        
+        // For force layouts, fix position
+        if (currentLayout === 'force') {
+          d.fx = event.x;
+          d.fy = event.y;
+        }
+        
+        // Update visual position immediately
+        d3.select(this).attr("transform", `translate(${d.x},${d.y})`);
+        
+        // Update connected links
+        g.selectAll(".link").attr("d", linkArc);
+      })
+      .on("end", function(event, d) {
+        // For force layouts, allow natural forces to resume
+        if (currentLayout === 'force' && simulationRef.current) {
+          if (!event.active) {
+            simulationRef.current.alphaTarget(0);
+          }
+          // Release fixed position to allow natural forces
+          d.fx = null;
+          d.fy = null;
+        }
+        // Reset cursor
+        d3.select(this).style("cursor", "grab");
+      });
+
+    // Apply enhanced drag behavior to nodes
+    node.call(dragBehavior).style("cursor", "grab");
 
     // Setup simulation based on layout
     if (currentLayout === 'force') {
@@ -466,20 +511,7 @@ const Visualizer = () => {
       }, 100);
     }
 
-    // Apply search filter (exact original)
-    if (searchTerm) {
-      d3.selectAll("circle")
-        .style("opacity", d => 
-          d.id.toLowerCase().includes(searchTerm.toLowerCase()) ? 1 : 0.2
-        );
-      
-      d3.selectAll("text")
-        .style("opacity", d => 
-          d.id.toLowerCase().includes(searchTerm.toLowerCase()) ? 1 : 0.2
-        );
-    }
-
-  }, [projectData, currentLayout, searchTerm, detectCircularDependenciesLocal, calculateNodeLevelsLocal, focusedNode, handleFocusOnNode, handleFetchClassInfo, setLoadingClassInfo, setSelectedNode]);
+  }, [projectData, currentLayout, detectCircularDependenciesLocal, calculateNodeLevelsLocal, focusedNode, handleFocusOnNode, handleFetchClassInfo, setLoadingClassInfo, setSelectedNode]);
 
   // Update statistics when project data changes (exact original)
   useEffect(() => {
@@ -632,15 +664,6 @@ const Visualizer = () => {
       <div className="flex flex-col lg:flex-row flex-1 gap-4 lg:gap-6 p-4 lg:p-6 max-w-full lg:max-w-7xl w-full mx-auto">
         {/* Sidebar */}
         <div className="w-full lg:w-80 xl:w-96 bg-white/95 backdrop-blur-md rounded-2xl p-4 lg:p-6 shadow-lg overflow-y-auto max-h-96 lg:max-h-full">
-          
-          {/* Search Input */}
-          <input
-            type="text"
-            placeholder="Search dependencies..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full p-3 border-2 border-gray-200 rounded-lg text-sm mb-4 lg:mb-5 transition-colors focus:border-indigo-500 focus:outline-none"
-          />
           
           {/* Statistics */}
           <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-5 mb-6">
