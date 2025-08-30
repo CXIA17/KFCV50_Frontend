@@ -188,10 +188,10 @@ export const detectIssues = (projectData, focusedNode = null) => {
   
   return issues;
 };
-const convertDotToSlash = useCallback((name) => {
+const convertDotToSlash = (name) => {
     if (!name) return name;
     return name.replace(/\./g, '/');
-  }, []);
+};
 /**
  * Transform base classes data from API response
  */
