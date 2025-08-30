@@ -1231,7 +1231,6 @@ const Visualizer = () => {
           {focusedNode && !previousState && (
             <button
               onClick={() => {
-                analyzeProject();
                 setFocusedNode(null);
                 setSelectedNode(null);
                 setClassInfo(null);
