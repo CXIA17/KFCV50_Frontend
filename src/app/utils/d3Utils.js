@@ -246,9 +246,9 @@ export function fitNodesToView(svg, nodes, padding = null) {
     return d3.zoomIdentity.translate(width / 2, height / 2).scale(1);
   }
 
-  // Dynamic padding based on number of nodes
+  // Dynamic padding based on number of nodes and text length considerations
   if (padding === null) {
-    padding = Math.max(20, Math.min(100, 50 + nodes.length * 0.5));
+    padding = Math.max(40, Math.min(120, 70 + nodes.length * 0.8)); // Increased padding for longer text
   }
 
   // Calculate bounds of all nodes

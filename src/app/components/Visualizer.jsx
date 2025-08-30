@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as d3 from 'd3';
+import Link from 'next/link';
 import { 
   useProjectData, 
   useClassExploration, 
@@ -26,6 +27,7 @@ const Visualizer = () => {
   const svgRef = useRef();
   const tooltipRef = useRef();
   const simulationRef = useRef();
+  const initializedRef = useRef(false); // Track if component has been initialized
   
   // State from custom hooks
   const { 
@@ -313,16 +315,34 @@ const Visualizer = () => {
         })();
       });
 
-    // Add labels
-    node.append("text")
-      .attr("dy", 25)
-      .attr("text-anchor", "middle")
-      .text(d => d.id)
-      .style("fill", "#333")
-      .style("font-size", "12px")
-      .style("font-weight", "500")
-      .style("pointer-events", "none")
-      .style("user-select", "none");
+    // Add labels with smart text handling
+    node.each(function(d) {
+      const nodeGroup = d3.select(this);
+      const maxLength = 20; // Maximum characters before truncation
+      let displayText = d.id;
+      
+      // Truncate very long names
+      if (d.id.length > maxLength) {
+        displayText = d.id.substring(0, maxLength) + '...';
+      }
+      
+      // Add main label
+      nodeGroup.append("text")
+        .attr("dy", 30) // Moved further down to avoid overlap
+        .attr("text-anchor", "middle")
+        .text(displayText)
+        .style("fill", "#333")
+        .style("font-size", "11px") // Slightly smaller for better fit
+        .style("font-weight", "500")
+        .style("pointer-events", "none")
+        .style("user-select", "none")
+        .style("text-shadow", "1px 1px 2px rgba(255,255,255,0.8)"); // Add text shadow for better readability
+      
+      // Add full name as title for truncated text (shows on hover)
+      if (d.id.length > maxLength) {
+        nodeGroup.select("text").append("title").text(d.id);
+      }
+    });
 
     // Link arc function for curved links
     const linkArc = (d) => createLinkArc(d, visibleNodes);
@@ -332,13 +352,17 @@ const Visualizer = () => {
       const simulation = d3.forceSimulation(visibleNodes)
         .force("link", d3.forceLink(validLinks)
           .id(d => d.id)
-          .distance(80) // Reduced from 100 for more compact layout
-          .strength(0.6)) // Increased slightly for better connection
-        .force("charge", d3.forceManyBody().strength(-600)) // Reduced from -800 for less spread
+          .distance(120) // Increased from 80 to give more space for long names
+          .strength(0.5)) // Slightly reduced for less rigid connections
+        .force("charge", d3.forceManyBody().strength(-800)) // Increased back to spread nodes more
         .force("center", d3.forceCenter(width / 2, height / 2))
-        .force("collision", d3.forceCollide().radius(25))
-        .force("x", d3.forceX(width / 2).strength(0.1)) // Add gentle centering force
-        .force("y", d3.forceY(height / 2).strength(0.1)); // Add gentle centering force
+        .force("collision", d3.forceCollide().radius(d => {
+          // Dynamic collision radius based on text length
+          const textLength = d.id.length;
+          return Math.max(35, Math.min(80, textLength * 3));
+        }))
+        .force("x", d3.forceX(width / 2).strength(0.05)) // Reduced centering force
+        .force("y", d3.forceY(height / 2).strength(0.05)); // Reduced centering force
 
       simulationRef.current = simulation;
 
@@ -384,7 +408,8 @@ const Visualizer = () => {
     } else {
       // Static layouts
       if (currentLayout === 'circular') {
-        const radius = Math.min(width, height) / 3;
+        // Increase radius for better spacing with long names
+        const radius = Math.min(width, height) / 2.5; // Increased from /3
         const angleStep = (2 * Math.PI) / visibleNodes.length;
         
         visibleNodes.forEach((node, i) => {
@@ -404,7 +429,8 @@ const Visualizer = () => {
         Object.keys(levelGroups).forEach(level => {
           const nodesInLevel = levelGroups[level];
           const levelY = (parseInt(level) + 1) * (height / (Object.keys(levelGroups).length + 1));
-          const spacing = width / (nodesInLevel.length + 1);
+          // Increase spacing to accommodate longer text
+          const spacing = Math.max(150, width / (nodesInLevel.length + 1)); // Minimum 150px spacing
           
           nodesInLevel.forEach((node, i) => {
             node.x = (i + 1) * spacing;
@@ -467,7 +493,10 @@ const Visualizer = () => {
 
   // Auto-load base classes on component mount (exact original behavior)
   useEffect(() => {
-    analyzeProject(clearHistory, setFocusedNode, resetView);
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      analyzeProject(clearHistory, setFocusedNode, resetView);
+    }
   }, []); // Empty dependency array means this runs once on mount
 
   // Handle window resize
@@ -822,38 +851,38 @@ const Visualizer = () => {
             <div className="space-y-1 lg:space-y-2">
               <div className="flex items-center gap-2 lg:gap-3 text-xs lg:text-sm">
                 <div className="w-4 lg:w-5 h-4 lg:h-5 rounded-full" style={{backgroundColor: "#ff9ff3"}}></div>
-                <span>Provider</span>
+                <span className="text-gray-800 font-medium">Provider</span>
               </div>
               <div className="flex items-center gap-2 lg:gap-3 text-xs lg:text-sm">
                 <div className="w-4 lg:w-5 h-4 lg:h-5 rounded-full" style={{backgroundColor: "#95a5a6"}}></div>
-                <span>Class</span>
+                <span className="text-gray-800 font-medium">Class</span>
               </div>
               <div className="flex items-center gap-2 lg:gap-3 text-xs lg:text-sm">
                 <div className="w-4 lg:w-5 h-4 lg:h-5 rounded-full bg-yellow-400"></div>
-                <span>Singleton</span>
+                <span className="text-gray-800 font-medium">Singleton</span>
               </div>
               <div className="flex items-center gap-2 lg:gap-3 text-xs lg:text-sm">
                 <div className="w-4 lg:w-5 h-4 lg:h-5 rounded-full bg-red-400"></div>
-                <span>Circular Dependency</span>
+                <span className="text-gray-800 font-medium">Circular Dependency</span>
               </div>
               <div className="mt-2 lg:mt-3 pt-1 lg:pt-2 border-t border-gray-200">
-                <div className="text-xs font-medium text-gray-600 mb-1 lg:mb-2">Relationships:</div>
+                <div className="text-xs font-semibold text-gray-800 mb-1 lg:mb-2">Relationships:</div>
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 text-xs">
                     <div className="w-3 lg:w-4 h-0.5 bg-blue-500"></div>
-                    <span>extends</span>
+                    <span className="text-gray-800 font-medium">extends</span>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
                     <div className="w-3 lg:w-4 h-0.5 bg-green-500"></div>
-                    <span>depends</span>
+                    <span className="text-gray-800 font-medium">depends</span>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
                     <div className="w-3 lg:w-4 h-0.5 bg-purple-500"></div>
-                    <span>provides</span>
+                    <span className="text-gray-800 font-medium">provides</span>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
                     <div className="w-3 lg:w-4 h-0.5 bg-orange-500"></div>
-                    <span>injects</span>
+                    <span className="text-gray-800 font-medium">injects</span>
                   </div>
                 </div>
               </div>

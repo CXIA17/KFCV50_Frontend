@@ -26,6 +26,24 @@ export const apiService = {
    */
   async fetchClassInfo(className) {
     try {
+      const response = await fetch('/api/base-classes');
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching base classes:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Fetch detailed class information
+   */
+  async fetchClassInfo(className) {
+    try {
       // Safety check for className
       if (!className || typeof className !== 'string') {
         console.warn('Invalid className provided to fetchClassInfo:', className);

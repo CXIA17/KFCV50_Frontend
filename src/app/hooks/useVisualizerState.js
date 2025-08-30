@@ -71,6 +71,12 @@ export const useProjectData = () => {
 
     // Auto-load base classes function (matches original exactly)
   const analyzeProject = useCallback(async (clearHistory, setFocusedNode, resetView) => {
+    // Prevent multiple simultaneous calls
+    if (loading) {
+      console.log('Already loading, skipping duplicate analyzeProject call');
+      return;
+    }
+    
     setLoading(true);
     setError(null);
     
@@ -103,7 +109,7 @@ export const useProjectData = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loading]); // Add loading as dependency
 
   return {
     projectData,
