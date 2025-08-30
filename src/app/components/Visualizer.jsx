@@ -164,7 +164,7 @@ const Visualizer = () => {
       const container = svgRef.current.parentElement;
       const width = container.clientWidth;
       const height = container.clientHeight;
-      
+
       // Get bounds of all nodes
       if (projectData.nodes.length > 0) {
         const bounds = {
@@ -173,24 +173,25 @@ const Visualizer = () => {
           minY: Math.min(...projectData.nodes.map(d => d.y || 0)),
           maxY: Math.max(...projectData.nodes.map(d => d.y || 0))
         };
-        
+
         const graphWidth = bounds.maxX - bounds.minX;
         const graphHeight = bounds.maxY - bounds.minY;
-        
-        // Add padding
+
+        // Add padding and set initial scale to zoomed out
         const padding = 50;
+        // Zoom out more: scale down to fit graph in 60% of view
         const scale = Math.min(
-          (width - padding * 2) / (graphWidth || width),
-          (height - padding * 2) / (graphHeight || height),
-          1 // Don't scale up beyond 1x
+          0.6 * (width - padding * 2) / (graphWidth || width),
+          0.6 * (height - padding * 2) / (graphHeight || height),
+          0.6 // Don't scale up beyond 0.6x (more zoomed out)
         );
-        
+
         const centerX = bounds.minX + graphWidth / 2;
         const centerY = bounds.minY + graphHeight / 2;
-        
+
         const translateX = width / 2 - centerX * scale;
         const translateY = height / 2 - centerY * scale;
-        
+
         svg.transition()
           .duration(750)
           .call(
@@ -198,12 +199,12 @@ const Visualizer = () => {
             d3.zoomIdentity.translate(translateX, translateY).scale(scale)
           );
       } else {
-        // Fallback to center reset
+        // Fallback to zoomed out center
         svg.transition()
           .duration(750)
           .call(
             d3.zoom().transform,
-            d3.zoomIdentity.translate(0, 0).scale(1)
+            d3.zoomIdentity.translate(0, 0).scale(0.2)
           );
       }
     }
@@ -824,7 +825,7 @@ const Visualizer = () => {
     setFocusedNode(null);
     
     try {
-      const response = await fetch('/api/base-classes');
+      const response = await fetch('https://automatic-space-spoon-wp5pgpvv65vh9r96-8000.app.github.dev/base-classes');
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -851,35 +852,47 @@ const Visualizer = () => {
 
   const transformBaseClasses = (apiData) => {
     console.log('API Response:', apiData);
-    
     let nodes = [];
     let links = [];
-    
 
-    if (apiData.base_classes) {
-      nodes = apiData.base_classes.map(cls => ({
-        id: convertDotToSlash(cls.name),
-        type: cls.type || "class",
-        scope: cls.scope || "module",
-        isProvider: cls.is_provider || false,
-        fullName: convertDotToSlash(cls.name),
-        ...cls
-      }));
+    // Iterate over each parent class key
+    Object.keys(apiData).forEach(parent => {
+      // Skip count keys
+      if (parent.endsWith('_count') || parent === 'group_count') return;
+      const children = apiData[parent];
+      if (!Array.isArray(children)) return;
 
-      nodes.push({
-        id: "Object",
-        type: "class",
-        scope: "module",
-        isProvider: false
+      // Add parent node
+      if (parent !== 'null' && parent !== 'None') {
+        nodes.push({
+          id: convertDotToSlash(parent),
+          type: "class",
+          scope: "module",
+          isProvider: false,
+          fullName: convertDotToSlash(parent)
+        });
+      }
+
+      // Add child nodes and links
+      children.forEach(child => {
+        nodes.push({
+          id: convertDotToSlash(child.name),
+          type: child.is_provider ? "provider" : "class",
+          scope: "module",
+          isProvider: child.is_provider,
+          fullName: convertDotToSlash(child.name)
+        });
+        // Link from child to parent
+        if (parent !== 'null' && parent !== 'None') {
+          links.push({
+            source: convertDotToSlash(child.name),
+            target: convertDotToSlash(parent),
+            type: "extends"
+          });
+        }
       });
+    });
 
-      links = apiData.base_classes.map(rel => ({
-        source: convertDotToSlash(rel.name),
-        target: "Object",
-        type: "extends"
-      }));
-    }
-    
     console.log('Transformed data:', { nodes, links }); // Debug log
     return { nodes, links };
   };
@@ -935,7 +948,7 @@ const Visualizer = () => {
     try {
       // Fetch class info - convert dot notation to slash notation for API call
       const apiClassName = className.replace(/\./g, '/');
-      const classResponse = await fetch(`/api/class-info/${encodeURIComponent(apiClassName)}`);
+      const classResponse = await fetch(`https://automatic-space-spoon-wp5pgpvv65vh9r96-8000.app.github.dev/class-info/${encodeURIComponent(apiClassName)}`);
       if (!classResponse.ok) {
         console.warn(`Failed to fetch class info for ${className}`);
         return;
@@ -1073,7 +1086,7 @@ const Visualizer = () => {
       // Try to fetch child classes for additional relationships
       try {
         const apiChildClassName = className.replace(/\./g, '/');
-        const childResponse = await fetch(`/api/child-classes/${encodeURIComponent(apiChildClassName)}`);
+        const childResponse = await fetch(`https://automatic-space-spoon-wp5pgpvv65vh9r96-8000.app.github.dev/child-classes/${encodeURIComponent(apiChildClassName)}`);
         if (childResponse.ok) {
           const childData = await childResponse.json();
           
@@ -1218,6 +1231,7 @@ const Visualizer = () => {
           {focusedNode && !previousState && (
             <button
               onClick={() => {
+                analyzeProject();
                 setFocusedNode(null);
                 setSelectedNode(null);
                 setClassInfo(null);
