@@ -9,45 +9,10 @@ import { apiService, exploreClassRecursively } from '../services/apiService';
  * Custom hook for managing project data and analysis
  */
 export const useProjectData = () => {
-  // Start with demo data for initial display, real data will be loaded via analyzeProject
+  // Start with empty data, real data will be loaded via analyzeProject
   const [projectData, setProjectData] = useState({
-    nodes: [
-      { id: "AppModule", type: "module", scope: "singleton" },
-      { id: "NetworkModule", type: "module", scope: "singleton" },
-      { id: "DatabaseModule", type: "module", scope: "singleton" },
-      { id: "AuthService", type: "service", scope: "singleton" },
-      { id: "UserRepository", type: "repository", scope: "singleton" },
-      { id: "ApiClient", type: "service", scope: "singleton" },
-      { id: "CacheManager", type: "service", scope: "singleton" },
-      { id: "LoggingService", type: "service", scope: "singleton" },
-      { id: "AnalyticsModule", type: "module", scope: "singleton" },
-      { id: "EventTracker", type: "service", scope: "singleton" },
-      { id: "ConfigService", type: "service", scope: "singleton" },
-      { id: "FeatureModule", type: "module", scope: "prototype" },
-      { id: "PaymentService", type: "service", scope: "singleton" },
-      { id: "NotificationService", type: "service", scope: "singleton" }
-    ],
-    links: [
-      { source: "AppModule", target: "NetworkModule", type: "provides" },
-      { source: "AppModule", target: "DatabaseModule", type: "provides" },
-      { source: "AppModule", target: "AnalyticsModule", type: "provides" },
-      { source: "NetworkModule", target: "ApiClient", type: "provides" },
-      { source: "NetworkModule", target: "ConfigService", type: "inject" },
-      { source: "DatabaseModule", target: "UserRepository", type: "provides" },
-      { source: "DatabaseModule", target: "CacheManager", type: "provides" },
-      { source: "AuthService", target: "UserRepository", type: "inject" },
-      { source: "AuthService", target: "ApiClient", type: "inject" },
-      { source: "UserRepository", target: "CacheManager", type: "inject" },
-      { source: "ApiClient", target: "LoggingService", type: "inject" },
-      { source: "LoggingService", target: "ConfigService", type: "inject" },
-      { source: "AnalyticsModule", target: "EventTracker", type: "provides" },
-      { source: "EventTracker", target: "ApiClient", type: "inject" },
-      { source: "FeatureModule", target: "PaymentService", type: "provides" },
-      { source: "PaymentService", target: "ApiClient", type: "inject" },
-      { source: "NotificationService", target: "EventTracker", type: "inject" },
-      { source: "NotificationService", target: "UserRepository", type: "inject" },
-      { source: "ConfigService", target: "LoggingService", type: "inject" }
-    ]
+    nodes: [],
+    links: []
   });
   
   const [loading, setLoading] = useState(false);
